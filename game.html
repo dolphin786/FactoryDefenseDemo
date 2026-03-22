@@ -357,8 +357,8 @@ function createGS(level) {
     bidCtr: 1,
     // 手牌
     hand: [],
-    // 资源池（全局简化）
-    res: {iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0},
+    // 资源只存在于传送带 item 和机器 inputBuf 中，此处仅保留展示用缓存
+    res: { _display: {iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0} },
     // UI状态
     selectedCard: null,
     beltMode: false,
@@ -555,7 +555,7 @@ const DIR_DY = [0, 1, 0, -1];
 //  更新顺序：从末端往源头（逆序），防止资源在一帧内连续移动多格
 // ================================================================
 
-const BELT_SPEED = 2.0; // 传送带速度：格/秒
+const BELT_SPEED = 1.5; // 传送带速度：格/秒（1.5格/秒，圆点在每格停留约0.67秒，肉眼可见）
 
 // ── 辅助：获取传送带下游格子坐标 ──
 function beltNextPos(b) {
@@ -635,110 +635,96 @@ function updateConveyors(dt) {
   }
 }
 
-// ── 主更新：矿节点产矿 → 推入输出方向传送带 ──
-// ── 机器加工 ──
+// ── 主更新：机器生产（仅在 defense 阶段调用） ──
+// 所有资源完全通过传送带流动，无全局资源池。
+// 矿节点 → 传送带 → 熔炉(inputBuf) → 传送带 → 组装机(inputBuf) → 弹药箱
 function updateProduction(dt) {
   for (const b of GS.buildings) {
     switch (b.type) {
 
-      // ── 铁矿节点：1秒产1铁矿石 ──
-      // 优先推入输出方向传送带；输出方向不是传送带（或传送带满）则退回全局池
+      // ── 铁矿节点：每秒尝试往输出方向传送带放1个铁矿石 ──
+      // 若传送带满则背压等待（计时器不重置，下帧继续尝试推入）
       case 'iron_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
-          b.prodTimer -= 1;
           const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'iron_ore', progress: 0 };
+            b.prodTimer -= 1; // 成功才消耗计时
           } else {
-            GS.res.iron_ore++; // 无传送带或传送带满 → 进全局池
+            b.prodTimer = 1.0; // 背压：卡住等待，下帧继续尝试
           }
         }
         break;
 
-      // ── 铜矿节点：1秒产1铜矿石 ──
+      // ── 铜矿节点：每秒尝试往输出方向传送带放1个铜矿石 ──
       case 'copper_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
-          b.prodTimer -= 1;
           const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'copper_ore', progress: 0 };
+            b.prodTimer -= 1;
           } else {
-            GS.res.copper_ore++;
+            b.prodTimer = 1.0;
           }
         }
         break;
 
-      // ── 熔炉：2秒加工，铁矿→铁板 或 铜矿→铜板 ──
-      // 取料：优先从 inputBuf（传送带喂料），其次从全局池
-      // 输出：优先推入输出方向传送带，否则进全局池
+      // ── 熔炉：从 inputBuf 取矿，加工2秒，产物推入输出方向传送带 ──
+      // inputBuf 由传送带末端调用 tryPushToMachineInput 填充
       case 'furnace': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 2) {
-          // 合并来源：传送带缓冲 + 全局池
-          const ironAvail   = (b.inputBuf.iron_ore   || 0) + GS.res.iron_ore;
-          const copperAvail = (b.inputBuf.copper_ore || 0) + GS.res.copper_ore;
-
-          // 交替选择矿种
+          const hasIron   = (b.inputBuf.iron_ore   || 0) > 0;
+          const hasCopper = (b.inputBuf.copper_ore || 0) > 0;
           let outputType = null;
-          if      (b._lastOutput === 'iron'   && copperAvail > 0) outputType = 'copper_plate';
-          else if (b._lastOutput === 'copper' && ironAvail   > 0) outputType = 'iron_plate';
-          else if (ironAvail   > 0)                                outputType = 'iron_plate';
-          else if (copperAvail > 0)                                outputType = 'copper_plate';
+          // 交替加工，避免只加工一种
+          if      (b._lastOutput === 'iron'   && hasCopper) outputType = 'copper_plate';
+          else if (b._lastOutput === 'copper' && hasIron)   outputType = 'iron_plate';
+          else if (hasIron)                                  outputType = 'iron_plate';
+          else if (hasCopper)                                outputType = 'copper_plate';
 
           if (outputType) {
-            // 扣料：优先扣传送带缓冲，不足时扣全局池
-            if (outputType === 'iron_plate') {
-              if ((b.inputBuf.iron_ore || 0) > 0) b.inputBuf.iron_ore--;
-              else GS.res.iron_ore--;
-              b._lastOutput = 'iron';
-            } else {
-              if ((b.inputBuf.copper_ore || 0) > 0) b.inputBuf.copper_ore--;
-              else GS.res.copper_ore--;
-              b._lastOutput = 'copper';
-            }
-            b.prodTimer = 0;
+            if (outputType === 'iron_plate') { b.inputBuf.iron_ore--;   b._lastOutput = 'iron'; }
+            else                             { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
 
-            // 产物：优先推入输出方向传送带，否则进全局池
+            // 产物推入输出方向传送带，若堵塞则等待（不丢弃，计时器不重置）
             const np = beltNextPos(b);
             const tb = getCell(np.x, np.y);
             if (tb && tb.type === 'conveyor' && tb.item === null) {
               tb.item = { type: outputType, progress: 0 };
+              b.prodTimer = 0;
             } else {
-              if (outputType === 'iron_plate')   GS.res.iron_plate++;
-              else                               GS.res.copper_plate++;
+              // 输出堵塞：把原料还回去，等待下帧重试
+              if (outputType === 'iron_plate') b.inputBuf.iron_ore++;
+              else                             b.inputBuf.copper_ore++;
+              b.prodTimer = 1.99; // 保持接近完成状态，下帧立即重试
             }
           } else {
-            b.prodTimer = 1.99;
+            b.prodTimer = 1.99; // 无原料等待
           }
         }
         break;
       }
 
-      // ── 组装机：1秒产5发子弹，消耗铁板+铜板 ──
-      // 取料：优先从 inputBuf（传送带喂料），其次从全局池
-      // 子弹直接写入相邻弹药箱，弹药箱满时进全局池计数
+      // ── 组装机：从 inputBuf 取铁板+铜板，1秒产5发子弹写入相邻弹药箱 ──
       case 'assembler': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
-          const ironAvail   = (b.inputBuf.iron_plate   || 0) + GS.res.iron_plate;
-          const copperAvail = (b.inputBuf.copper_plate || 0) + GS.res.copper_plate;
-          if (ironAvail > 0 && copperAvail > 0) {
-            // 扣料
-            if ((b.inputBuf.iron_plate   || 0) > 0) b.inputBuf.iron_plate--;
-            else GS.res.iron_plate--;
-            if ((b.inputBuf.copper_plate || 0) > 0) b.inputBuf.copper_plate--;
-            else GS.res.copper_plate--;
+          const hasIronPlate   = (b.inputBuf.iron_plate   || 0) > 0;
+          const hasCopperPlate = (b.inputBuf.copper_plate || 0) > 0;
+          if (hasIronPlate && hasCopperPlate) {
+            b.inputBuf.iron_plate--;
+            b.inputBuf.copper_plate--;
             b.prodTimer = 0;
-            const stored = storeAmmoNearby(b.x, b.y, 5);
-            GS.res.bullet = Math.max(0, GS.res.bullet + (5 - stored));
+            storeAmmoNearby(b.x, b.y, 5);
           } else {
-            b.prodTimer = 0.99;
+            b.prodTimer = 0.99; // 等待原料
           }
         }
         break;
@@ -746,28 +732,26 @@ function updateProduction(dt) {
     }
   }
 
-  // 重建全局资源显示计数（传送带上 + 机器缓冲 + 全局池）
+  // 每帧统计传送带+缓冲+弹药箱用于 UI 显示
   rebuildResDisplay();
 }
 
-// ── 统计资源显示数据（传送带 + 机器缓冲 + 全局池 + 弹药箱） ──
+// ── 统计资源用于 UI 显示（纯传送带模式，遍历建筑） ──
 function rebuildResDisplay() {
-  const counts = {
-    iron_ore:     GS.res.iron_ore,
-    copper_ore:   GS.res.copper_ore,
-    iron_plate:   GS.res.iron_plate,
-    copper_plate: GS.res.copper_plate,
-    bullet:       GS.res.bullet,
-  };
+  const counts = { iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0 };
   for (const b of GS.buildings) {
+    // 传送带上的物品（每格最多1个）
     if (b.type === 'conveyor' && b.item) {
-      if (counts[b.item.type] !== undefined) counts[b.item.type]++;
+      const t = b.item.type;
+      if (t in counts) counts[t]++;
     }
+    // 机器输入缓冲
     if (b.inputBuf) {
       for (const [k, v] of Object.entries(b.inputBuf)) {
-        if (counts[k] !== undefined) counts[k] += v;
+        if (k in counts) counts[k] += v;
       }
     }
+    // 弹药箱存弹
     if (b.type === 'ammo_box') counts.bullet += b.ammo;
   }
   GS.res._display = counts;
@@ -1902,13 +1886,16 @@ class GameScene extends Phaser.Scene {
     if (GS.paused || GS.gameOver) return;
     const dt=(delta/1000)*GS.timeSpeed;
 
-    // 传送带和生产系统：准备阶段和防御阶段都运行，让玩家能即时验证产线
-    if (GS.phase === 'prepare' || GS.phase === 'defense') {
+    // 准备阶段：只跑传送带动画（让玩家看到流向），不生产
+    if (GS.phase === 'prepare') {
       updateConveyors(dt);
-      updateProduction(dt);
+      rebuildResDisplay(); // 更新 UI 显示计数
     }
 
+    // 防御阶段：完整运行所有系统
     if (GS.phase === 'defense') {
+      updateConveyors(dt);
+      updateProduction(dt);
       updateWave(dt);
       updateEnemies(dt);
       updateDefense(dt);
