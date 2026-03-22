@@ -613,6 +613,10 @@ function placeBuilding(x, y, type, dir, sourceCard) {
     fireCooldown: 0,
     // 弹药箱
     ammo: 0, ammoMax: 50,
+    // 传送带槽位（null = 空，{ type, progress } = 有物品）
+    item: null,
+    // 机器输入缓冲
+    inputBuf: {},
   };
   GS.grid[y][x] = b;
   GS.buildings.push(b);
@@ -697,7 +701,7 @@ function tryPushItem(item, tx, ty) {
   if (!tb) return false;
 
   if (tb.type === 'conveyor') {
-    if (tb.item === null) {
+    if (tb.item == null) {
       tb.item = { type: item.type, progress: 0 };
       return true;
     }
@@ -803,7 +807,7 @@ function updateProduction(dt) {
         if (b.prodTimer >= 1) {
           const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
-          if (tb && tb.type === 'conveyor' && tb.item === null) {
+          if (tb && tb.type === 'conveyor' && tb.item == null) {
             tb.item = { type: 'iron_ore', progress: 0 };
             b.prodTimer -= 1;
             dlog('prod', `铁矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-iron-${b.id}`);
@@ -820,7 +824,7 @@ function updateProduction(dt) {
         if (b.prodTimer >= 1) {
           const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
-          if (tb && tb.type === 'conveyor' && tb.item === null) {
+          if (tb && tb.type === 'conveyor' && tb.item == null) {
             tb.item = { type: 'copper_ore', progress: 0 };
             b.prodTimer -= 1;
             dlog('prod', `铜矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-copper-${b.id}`);
@@ -852,7 +856,7 @@ function updateProduction(dt) {
             else                             { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
             const np = beltNextPos(b);
             const tb = getCell(np.x, np.y);
-            if (tb && tb.type === 'conveyor' && tb.item === null) {
+            if (tb && tb.type === 'conveyor' && tb.item == null) {
               tb.item = { type: outputType, progress: 0 };
               b.prodTimer = 0;
               dlog('prod', `✅ 熔炉(${b.x},${b.y}) 产出${outputType}→传送带(${np.x},${np.y})`);
