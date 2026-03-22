@@ -1,25 +1,28 @@
 import Phaser from 'phaser';
 import { CELL } from '../../config/GameConfig';
 import { BUILDING_CONFIGS, HAS_OUTPUT_DIR } from '../../config/BuildingConfig';
-import { DIR_ARROWS } from '../../config/GameConfig';
+import { DIR_DX, DIR_DY } from '../../config/GameConfig';
 import { Building } from '../../model/Building';
 import { getPathCells } from '../../utils/GridUtils';
+import { drawBuildingIcon, drawDirArrow } from './PixelIcons';
 
 interface BuildingVisual {
+  iconGfx:  Phaser.GameObjects.Graphics | null;  // 像素图标
+  dirGfx:   Phaser.GameObjects.Graphics | null;  // 输出方向箭头
   hpBg:     Phaser.GameObjects.Graphics | null;
   hpBar:    Phaser.GameObjects.Graphics | null;
-  icon:     Phaser.GameObjects.Text | null;
-  dirLabel: Phaser.GameObjects.Text | null;
   ammoTxt:  Phaser.GameObjects.Text | null;
-  warnTxt:  Phaser.GameObjects.Text | null;
+  warnGfx:  Phaser.GameObjects.Graphics | null;  // 无弹药警告（像素X）
 }
 
 /**
- * BuildingRenderer — 管理所有建筑的 Phaser 视觉对象
+ * BuildingRenderer — 管理所有建筑的像素视觉
+ *
+ * 完全使用 Phaser Graphics 绘制，不依赖 emoji 或系统字体。
  */
 export class BuildingRenderer {
-  private scene: Phaser.Scene;
-  private gfxBuilding: Phaser.GameObjects.Graphics;
+  private scene:       Phaser.Scene;
+  private gfxBuilding: Phaser.GameObjects.Graphics; // 底色层（静态）
   private visuals = new Map<number, BuildingVisual>();
   private pathSet: Set<string>;
 
@@ -30,64 +33,84 @@ export class BuildingRenderer {
   }
 
   add(b: Building): void {
-    const cfg = BUILDING_CONFIGS[b.type];
-    const px = b.x * CELL, py = b.y * CELL;
-    const cx = px + CELL / 2, cy = py + CELL / 2;
-    const g = this.gfxBuilding;
+    const cfg  = BUILDING_CONFIGS[b.type];
+    const px   = b.x * CELL, py = b.y * CELL;
+    const cx   = px + CELL / 2, cy = py + CELL / 2;
+    const g    = this.gfxBuilding;
 
-    // 底色
-    g.fillStyle(cfg.color, 0.9);
-    g.fillRect(px + 3, py + 3, CELL - 6, CELL - 6);
+    // ── 底色方块 ─────────────────────────────────────────────
+    g.fillStyle(cfg.color, 0.85);
+    g.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+
+    // 像素风边框：外框深色，内框亮色（凸起效果）
+    g.lineStyle(1, 0x000000, 1);
+    g.strokeRect(px + 2,        py + 2,        CELL - 4, CELL - 4);
+    g.lineStyle(1, 0xFFFFFF, 0.18);
+    g.strokeRect(px + 3,        py + 3,        CELL - 6, CELL - 6);
+
+    // 核心建筑：金色双边框
     if (b.type === 'core') {
-      g.lineStyle(3, 0xFFD700, 1); g.strokeRect(px + 3, py + 3, CELL - 6, CELL - 6);
-    } else if (b.type === 'gun_tower') {
-      g.lineStyle(2, 0xFF8080, 1); g.strokeRect(px + 3, py + 3, CELL - 6, CELL - 6);
-    } else {
-      g.lineStyle(1, 0x566573, 0.8); g.strokeRect(px + 3, py + 3, CELL - 6, CELL - 6);
+      g.lineStyle(2, 0xFFD700, 1);
+      g.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+    }
+    // 炮塔：红色外框
+    if (b.type === 'gun_tower') {
+      g.lineStyle(1, 0xFF4040, 0.7);
+      g.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
     }
 
-    // 图标
-    const iconTxt = b.type === 'conveyor' ? DIR_ARROWS[b.dir] : cfg.emoji;
-    const iconY = (b.type === 'core' || b.type === 'conveyor') ? cy : cy - 3;
-    const icon = this.scene.add.text(cx, iconY, iconTxt, { fontSize: '18px' }).setOrigin(0.5).setDepth(3);
+    // ── 像素图标 ────────────────────────────────────────────
+    const iconGfx = drawBuildingIcon(this.scene, b, CELL, 3);
 
-    // 方向小标（矿节点/熔炉/组装机）
-    let dirLabel: Phaser.GameObjects.Text | null = null;
+    // ── 输出方向箭头（矿节点/熔炉/组装机） ─────────────────
+    let dirGfx: Phaser.GameObjects.Graphics | null = null;
     if (HAS_OUTPUT_DIR.includes(b.type) && b.type !== 'conveyor') {
-      dirLabel = this.scene.add.text(cx + 13, cy + 13, DIR_ARROWS[b.dir], {
-        fontSize: '12px', color: '#FFFF88', stroke: '#000', strokeThickness: 2,
+      dirGfx = this.scene.add.graphics().setDepth(4);
+      // 小箭头画在右下角
+      const adx = DIR_DX[b.dir], ady = DIR_DY[b.dir];
+      const ax = cx + adx * 10 + 8, ay = cy + ady * 10 + 8;
+      drawDirArrow(dirGfx, ax, ay, b.dir, 10, 0xFFCC00);
+    }
+
+    // ── 弹药箱：显示存弹量（像素字体） ─────────────────────
+    let ammoTxt: Phaser.GameObjects.Text | null = null;
+    if (b.type === 'ammo_box') {
+      ammoTxt = this.scene.add.text(cx, cy + 11, `${b.ammo}`, {
+        fontSize: '7px',
+        fontFamily: "'Press Start 2P', monospace",
+        color: '#FFD700',
+        stroke: '#000000',
+        strokeThickness: 2,
       }).setOrigin(0.5).setDepth(4);
     }
 
-    // 弹药箱数字
-    let ammoTxt: Phaser.GameObjects.Text | null = null;
-    if (b.type === 'ammo_box') {
-      ammoTxt = this.scene.add.text(cx, cy + 12, `${b.ammo}/${b.ammoMax}`, {
-        fontSize: '8px', color: '#FFD700',
-      }).setOrigin(0.5).setDepth(3);
-    }
-
-    // 无弹药警告
-    let warnTxt: Phaser.GameObjects.Text | null = null;
+    // ── 无弹药警告（像素 X 符号） ───────────────────────────
+    let warnGfx: Phaser.GameObjects.Graphics | null = null;
     if (b.type === 'gun_tower') {
-      warnTxt = this.scene.add.text(cx, py + 4, '❌', { fontSize: '10px' })
-        .setOrigin(0.5).setDepth(4).setVisible(false);
+      warnGfx = this.scene.add.graphics().setDepth(5).setVisible(false);
+      // 2×2 像素 X 由两条对角线矩形组成
+      const wx = px + CELL - 10, wy = py + 3;
+      warnGfx.fillStyle(0xFF3030, 1);
+      for (let i = 0; i < 5; i++) {
+        warnGfx.fillRect(wx + i, wy + i, 2, 2);        // 左上→右下
+        warnGfx.fillRect(wx + 4 - i, wy + i, 2, 2);   // 右上→左下
+      }
     }
 
-    // 血条
-    let hpBg: Phaser.GameObjects.Graphics | null = null;
+    // ── 血条（生产建筑和防御建筑） ──────────────────────────
+    let hpBg:  Phaser.GameObjects.Graphics | null = null;
     let hpBar: Phaser.GameObjects.Graphics | null = null;
-    const showHp = !['conveyor', 'core', 'iron_ore_node', 'copper_ore_node'].includes(b.type);
+    const showHp = !['conveyor','core','iron_ore_node','copper_ore_node'].includes(b.type);
     if (showHp) {
-      hpBg = this.scene.add.graphics().setDepth(3);
+      hpBg  = this.scene.add.graphics().setDepth(3);
       hpBar = this.scene.add.graphics().setDepth(3);
-      hpBg.fillStyle(0x222222, 1);
-      hpBg.fillRect(px + 4, py + CELL - 9, CELL - 8, 5);
-      hpBar.fillStyle(0x27AE60, 1);
-      hpBar.fillRect(px + 4, py + CELL - 9, CELL - 8, 5);
+      hpBg.fillStyle(0x111111, 1);
+      hpBg.fillRect(px + 3, py + CELL - 7, CELL - 6, 4);
+      hpBar.fillStyle(0x39FF14, 1);
+      hpBar.fillRect(px + 3, py + CELL - 7, CELL - 6, 4);
     }
 
-    this.visuals.set(b.id, { hpBg, hpBar, icon, dirLabel, ammoTxt, warnTxt });
+    this.visuals.set(b.id, { iconGfx, dirGfx, hpBg, hpBar, ammoTxt, warnGfx });
   }
 
   refresh(b: Building): void {
@@ -99,45 +122,42 @@ export class BuildingRenderer {
       const px = b.x * CELL, py = b.y * CELL;
       const ratio = b.health / b.maxHealth;
       v.hpBar.clear();
-      const col = ratio > 0.5 ? 0x27AE60 : ratio > 0.25 ? 0xF39C12 : 0xE74C3C;
+      const col = ratio > 0.5 ? 0x39FF14 : ratio > 0.25 ? 0xFFB000 : 0xFF3030;
       v.hpBar.fillStyle(col, 1);
-      v.hpBar.fillRect(px + 4, py + CELL - 9, Math.floor((CELL - 8) * ratio), 5);
+      v.hpBar.fillRect(px + 3, py + CELL - 7, Math.floor((CELL - 6) * ratio), 4);
     }
 
-    // 弹药箱
+    // 弹药箱存弹量
     if (v.ammoTxt && b.type === 'ammo_box') {
-      v.ammoTxt.setText(`${b.ammo}/${b.ammoMax}`);
+      v.ammoTxt.setText(`${b.ammo}`);
     }
 
     // 无弹药警告
-    if (v.warnTxt && b.type === 'gun_tower') {
-      v.warnTxt.setVisible(b.noAmmo);
+    if (v.warnGfx && b.type === 'gun_tower') {
+      v.warnGfx.setVisible(b.noAmmo);
     }
   }
 
   remove(b: Building): void {
     const v = this.visuals.get(b.id);
     if (!v) return;
-    v.icon?.destroy(); v.dirLabel?.destroy(); v.ammoTxt?.destroy();
-    v.warnTxt?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
+    v.iconGfx?.destroy(); v.dirGfx?.destroy(); v.ammoTxt?.destroy();
+    v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
     this.visuals.delete(b.id);
 
-    // 擦除格子并补回背景
+    // 擦除格子，补回底色
     const px = b.x * CELL, py = b.y * CELL;
-    this.gfxBuilding.fillStyle(0x263238, 1);
+    const isPath = this.pathSet.has(`${b.x},${b.y}`);
+    this.gfxBuilding.fillStyle(isPath ? 0x3D2B1F : 0x141414, 1);
     this.gfxBuilding.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    if (this.pathSet.has(`${b.x},${b.y}`)) {
-      this.gfxBuilding.fillStyle(0x3D2B1F, 1);
-      this.gfxBuilding.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    }
-    this.gfxBuilding.lineStyle(1, 0x37474F, 1);
+    this.gfxBuilding.lineStyle(1, 0x2a2a2a, 1);
     this.gfxBuilding.strokeRect(px, py, CELL, CELL);
   }
 
   clearAll(): void {
     for (const [, v] of this.visuals) {
-      v.icon?.destroy(); v.dirLabel?.destroy(); v.ammoTxt?.destroy();
-      v.warnTxt?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
+      v.iconGfx?.destroy(); v.dirGfx?.destroy(); v.ammoTxt?.destroy();
+      v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
     }
     this.visuals.clear();
     this.gfxBuilding.clear();
