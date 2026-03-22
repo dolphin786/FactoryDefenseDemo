@@ -185,6 +185,49 @@ body {
 .starter-deck .dk-name { font-size:13px; font-weight:bold; color:#ECF0F1; margin-bottom:4px; }
 .starter-deck .dk-desc { font-size:10px; color:#95A5A6; }
 .starter-deck .dk-cards { margin-top:8px; font-size:9px; color:#BDC3C7; line-height:1.6; text-align:left; }
+/* Debug 日志面板 */
+#debug-panel {
+  display:none;
+  position:fixed; top:40px; right:0; width:320px; height:calc(100vh - 40px);
+  background:rgba(10,14,18,0.93); border-left:2px solid #27AE60;
+  z-index:2000; flex-direction:column; font-family:monospace;
+}
+#debug-panel.show { display:flex; }
+#debug-header {
+  background:#1a2e1a; padding:4px 8px;
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0; border-bottom:1px solid #27AE60;
+}
+#debug-header span { color:#27AE60; font-size:11px; font-weight:bold; }
+#debug-header button {
+  background:none; border:1px solid #27AE60; color:#27AE60;
+  font-size:10px; padding:1px 6px; border-radius:3px; cursor:pointer;
+}
+#debug-filter {
+  display:flex; gap:4px; padding:4px 8px; flex-shrink:0;
+  border-bottom:1px solid #263238; flex-wrap:wrap;
+}
+.df-btn {
+  font-size:9px; padding:1px 5px; border-radius:3px; cursor:pointer;
+  border:1px solid #37474F; background:#1a252f; color:#7F8C8D;
+}
+.df-btn.on { background:#1a3a1a; color:#27AE60; border-color:#27AE60; }
+#debug-log {
+  flex:1; overflow-y:auto; padding:4px 8px;
+  font-size:10px; line-height:1.6;
+}
+#debug-log .dl { display:block; border-bottom:1px solid #1a252f; padding:1px 0; white-space:pre-wrap; word-break:break-all; }
+#debug-log .dl.belt  { color:#3498DB; }
+#debug-log .dl.prod  { color:#F39C12; }
+#debug-log .dl.ammo  { color:#E74C3C; }
+#debug-log .dl.warn  { color:#E74C3C; font-weight:bold; }
+#debug-log .dl.info  { color:#95A5A6; }
+#debug-log .dl.tower { color:#E67E22; }
+#debug-btn {
+  background:#1a3a1a; color:#27AE60; border:1px solid #27AE60;
+  padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;
+}
+#debug-btn:hover { background:#27AE60; color:#000; }
 </style>
 </head>
 <body>
@@ -201,6 +244,7 @@ body {
       <button class="speed-btn active" id="btn-1x" onclick="setSpeed(1)">1x</button>
       <button class="speed-btn" id="btn-2x" onclick="setSpeed(2)">2x</button>
       <button class="speed-btn" id="btn-4x" onclick="setSpeed(4)">4x</button>
+      <button id="debug-btn" onclick="toggleDebug()">🔬Debug</button>
     </div>
   </div>
   <!-- Phaser画布 -->
@@ -227,6 +271,24 @@ body {
 <!-- 操作提示 -->
 <div id="hint-bar">R键旋转方向 | 右键取消/移除建筑</div>
 
+<!-- Debug 日志面板 -->
+<div id="debug-panel">
+  <div id="debug-header">
+    <span>🔬 传送带调试日志</span>
+    <button onclick="clearDebugLog()">清空</button>
+  </div>
+  <div id="debug-filter">
+    <span style="color:#7F8C8D;font-size:9px;align-self:center">过滤:</span>
+    <button class="df-btn on" data-tag="belt"  onclick="toggleFilter(this)">传送带</button>
+    <button class="df-btn on" data-tag="prod"  onclick="toggleFilter(this)">生产</button>
+    <button class="df-btn on" data-tag="ammo"  onclick="toggleFilter(this)">弹药</button>
+    <button class="df-btn on" data-tag="tower" onclick="toggleFilter(this)">炮塔</button>
+    <button class="df-btn on" data-tag="warn"  onclick="toggleFilter(this)">警告</button>
+    <button class="df-btn on" data-tag="info"  onclick="toggleFilter(this)">信息</button>
+  </div>
+  <div id="debug-log"></div>
+</div>
+
 <!-- 结算弹窗 -->
 <div id="overlay">
   <div id="dialog">
@@ -239,6 +301,72 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <script>
 'use strict';
+
+// ================================================================
+//  Debug 日志系统
+// ================================================================
+const DBG = {
+  enabled: false,
+  filters: { belt:true, prod:true, ammo:true, tower:true, warn:true, info:true },
+  maxLines: 200,       // 最多保留条数
+  throttle: {},        // 节流：相同 key 每N秒最多一条
+  THROTTLE_SEC: 0.5,   // 默认节流间隔
+};
+
+/** 写一条日志
+ * @param {string} tag   - 'belt'|'prod'|'ammo'|'tower'|'warn'|'info'
+ * @param {string} msg   - 日志内容
+ * @param {string} [key] - 节流 key，相同 key 在节流时间内只记一条
+ */
+function dlog(tag, msg, key) {
+  if (!DBG.enabled) return;
+  if (!DBG.filters[tag]) return;
+  // 节流
+  if (key) {
+    const now = performance.now() / 1000;
+    const last = DBG.throttle[key] || 0;
+    if (now - last < DBG.THROTTLE_SEC) return;
+    DBG.throttle[key] = now;
+  }
+  const el = document.getElementById('debug-log');
+  if (!el) return;
+  const line = document.createElement('span');
+  line.className = `dl ${tag}`;
+  const t = (performance.now()/1000).toFixed(2);
+  line.textContent = `[${t}][${tag.toUpperCase()}] ${msg}`;
+  el.appendChild(line);
+  // 超出条数时删最老的
+  while (el.children.length > DBG.maxLines) el.removeChild(el.firstChild);
+  // 自动滚到底
+  el.scrollTop = el.scrollHeight;
+}
+
+function toggleDebug() {
+  DBG.enabled = !DBG.enabled;
+  document.getElementById('debug-panel').classList.toggle('show', DBG.enabled);
+  document.getElementById('debug-btn').style.background = DBG.enabled ? '#27AE60' : '';
+  document.getElementById('debug-btn').style.color      = DBG.enabled ? '#000'    : '';
+  if (DBG.enabled) dlog('info', '调试日志已开启');
+}
+
+function clearDebugLog() {
+  const el = document.getElementById('debug-log');
+  if (el) el.innerHTML = '';
+  DBG.throttle = {};
+}
+
+function toggleFilter(btn) {
+  const tag = btn.dataset.tag;
+  DBG.filters[tag] = !DBG.filters[tag];
+  btn.classList.toggle('on', DBG.filters[tag]);
+  // 重新渲染可见性
+  const el = document.getElementById('debug-log');
+  if (!el) return;
+  for (const line of el.querySelectorAll('.dl')) {
+    const lineTag = [...line.classList].find(c => c !== 'dl');
+    if (lineTag) line.style.display = DBG.filters[lineTag] ? '' : 'none';
+  }
+}
 
 // ================================================================
 //  常量配置
@@ -592,10 +720,17 @@ const INPUT_BUF_MAX = 4;
 function tryPushToMachineInput(machine, resType) {
   if (!machine.inputBuf) machine.inputBuf = {};
   const allowed = machineAccepts(machine.type, resType);
-  if (!allowed) return false;
+  if (!allowed) {
+    dlog('warn', `  ↳ 机器(${machine.x},${machine.y})[${machine.type}] 不接受 ${resType}`, `push-reject-${machine.id}-${resType}`);
+    return false;
+  }
   const cur = machine.inputBuf[resType] || 0;
-  if (cur >= INPUT_BUF_MAX) return false;
+  if (cur >= INPUT_BUF_MAX) {
+    dlog('warn', `  ↳ 机器(${machine.x},${machine.y})[${machine.type}] buf已满(${cur}/${INPUT_BUF_MAX}) ${resType}`, `push-full-${machine.id}-${resType}`);
+    return false;
+  }
   machine.inputBuf[resType] = cur + 1;
+  dlog('belt', `  ↳ 推入 ${resType} 到 ${machine.type}(${machine.x},${machine.y}) buf[${resType}]=${cur+1}`, `push-ok-${machine.id}-${resType}`);
   return true;
 }
 
@@ -608,28 +743,47 @@ function machineAccepts(machineType, resType) {
 
 // ── 主更新：传送带流动 ──
 function updateConveyors(dt) {
-  // 找出所有传送带，按"距离源头远的优先处理"（简化：直接倒序遍历buildings）
-  // 倒序保证末端先更新，避免同帧连续推进
   const belts = [];
   for (const b of GS.buildings) {
     if (b.type === 'conveyor') belts.push(b);
   }
 
-  // 从末端往源头处理（倒序遍历即可近似，真正拓扑排序复杂度过高）
+  if (belts.length === 0) {
+    dlog('belt', '没有传送带', 'no-belt');
+    return;
+  }
+
+  // 从末端往源头处理（倒序）
   for (let i = belts.length - 1; i >= 0; i--) {
     const b = belts[i];
     if (!b.item) continue;
 
+    const prevProg = b.item.progress;
     b.item.progress += BELT_SPEED * dt;
 
+    dlog('belt',
+      `传送带(${b.x},${b.y})dir=${b.dir} item=${b.item.type} prog=${prevProg.toFixed(2)}→${b.item.progress.toFixed(2)}`,
+      `belt-${b.id}`);
+
     if (b.item.progress >= 1.0) {
-      // 尝试把资源推到下游
       const np = beltNextPos(b);
+      const downstream = getCell(np.x, np.y);
       const pushed = tryPushItem(b.item, np.x, np.y);
       if (pushed) {
-        b.item = null; // 本格清空
+        dlog('belt',
+          `  ✅ 推出 ${b.item ? b.item.type : '?'} → (${np.x},${np.y}) [${downstream ? downstream.type : '空格'}]`,
+          `belt-push-${b.id}`);
+        b.item = null;
       } else {
-        b.item.progress = 1.0; // 堵塞，卡在格子末端等待
+        const reason = !downstream ? '目标格为空' :
+          downstream.type === 'conveyor' ? `下游传送带已有item(${downstream.item?.type})` :
+          (downstream.type === 'furnace' || downstream.type === 'assembler') ?
+            `机器inputBuf满(${JSON.stringify(downstream.inputBuf)})` :
+            `目标格类型=${downstream.type}不接受`;
+        dlog('warn',
+          `  ❌ 堵塞(${b.x},${b.y})→(${np.x},${np.y}): ${reason}`,
+          `belt-block-${b.id}`);
+        b.item.progress = 1.0;
       }
     }
   }
@@ -651,14 +805,16 @@ function updateProduction(dt) {
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'iron_ore', progress: 0 };
-            b.prodTimer -= 1; // 成功才消耗计时
+            b.prodTimer -= 1;
+            dlog('prod', `铁矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-iron-${b.id}`);
           } else {
-            b.prodTimer = 1.0; // 背压：卡住等待，下帧继续尝试
+            b.prodTimer = 1.0;
+            const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已有item(${tb.item?.type})`;
+            dlog('warn', `铁矿(${b.x},${b.y}) 输出方向dir=${b.dir}→(${np.x},${np.y})背压: ${reason}`, `ore-iron-block-${b.id}`);
           }
         }
         break;
 
-      // ── 铜矿节点：每秒尝试往输出方向传送带放1个铜矿石 ──
       case 'copper_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
@@ -667,22 +823,25 @@ function updateProduction(dt) {
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'copper_ore', progress: 0 };
             b.prodTimer -= 1;
+            dlog('prod', `铜矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-copper-${b.id}`);
           } else {
             b.prodTimer = 1.0;
+            const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已有item(${tb.item?.type})`;
+            dlog('warn', `铜矿(${b.x},${b.y}) dir=${b.dir}→(${np.x},${np.y})背压: ${reason}`, `ore-copper-block-${b.id}`);
           }
         }
         break;
 
-      // ── 熔炉：从 inputBuf 取矿，加工2秒，产物推入输出方向传送带 ──
-      // inputBuf 由传送带末端调用 tryPushToMachineInput 填充
       case 'furnace': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
+        dlog('prod',
+          `熔炉(${b.x},${b.y}) timer=${b.prodTimer.toFixed(2)} buf={Fe:${b.inputBuf.iron_ore||0} Cu:${b.inputBuf.copper_ore||0}}`,
+          `furnace-tick-${b.id}`);
         if (b.prodTimer >= 2) {
           const hasIron   = (b.inputBuf.iron_ore   || 0) > 0;
           const hasCopper = (b.inputBuf.copper_ore || 0) > 0;
           let outputType = null;
-          // 交替加工，避免只加工一种
           if      (b._lastOutput === 'iron'   && hasCopper) outputType = 'copper_plate';
           else if (b._lastOutput === 'copper' && hasIron)   outputType = 'iron_plate';
           else if (hasIron)                                  outputType = 'iron_plate';
@@ -691,30 +850,33 @@ function updateProduction(dt) {
           if (outputType) {
             if (outputType === 'iron_plate') { b.inputBuf.iron_ore--;   b._lastOutput = 'iron'; }
             else                             { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
-
-            // 产物推入输出方向传送带，若堵塞则等待（不丢弃，计时器不重置）
             const np = beltNextPos(b);
             const tb = getCell(np.x, np.y);
             if (tb && tb.type === 'conveyor' && tb.item === null) {
               tb.item = { type: outputType, progress: 0 };
               b.prodTimer = 0;
+              dlog('prod', `✅ 熔炉(${b.x},${b.y}) 产出${outputType}→传送带(${np.x},${np.y})`);
             } else {
-              // 输出堵塞：把原料还回去，等待下帧重试
               if (outputType === 'iron_plate') b.inputBuf.iron_ore++;
               else                             b.inputBuf.copper_ore++;
-              b.prodTimer = 1.99; // 保持接近完成状态，下帧立即重试
+              b.prodTimer = 1.99;
+              const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带dir=${b.dir}(${tb.type})` : `传送带已满(${tb.item?.type})`;
+              dlog('warn', `❌ 熔炉(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
             }
           } else {
-            b.prodTimer = 1.99; // 无原料等待
+            b.prodTimer = 1.99;
+            dlog('prod', `熔炉(${b.x},${b.y}) 无原料等待`, `furnace-wait-${b.id}`);
           }
         }
         break;
       }
 
-      // ── 组装机：从 inputBuf 取铁板+铜板，1秒产5发子弹写入相邻弹药箱 ──
       case 'assembler': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
+        dlog('prod',
+          `组装机(${b.x},${b.y}) timer=${b.prodTimer.toFixed(2)} buf={Fe板:${b.inputBuf.iron_plate||0} Cu板:${b.inputBuf.copper_plate||0}}`,
+          `asm-tick-${b.id}`);
         if (b.prodTimer >= 1) {
           const hasIronPlate   = (b.inputBuf.iron_plate   || 0) > 0;
           const hasCopperPlate = (b.inputBuf.copper_plate || 0) > 0;
@@ -722,9 +884,11 @@ function updateProduction(dt) {
             b.inputBuf.iron_plate--;
             b.inputBuf.copper_plate--;
             b.prodTimer = 0;
-            storeAmmoNearby(b.x, b.y, 5);
+            const stored = storeAmmoNearby(b.x, b.y, 5);
+            dlog('ammo', `✅ 组装机(${b.x},${b.y}) 产5发子弹，存入弹药箱${stored}发`);
           } else {
-            b.prodTimer = 0.99; // 等待原料
+            b.prodTimer = 0.99;
+            dlog('prod', `组装机(${b.x},${b.y}) 缺料: Fe板=${hasIronPlate?'有':'无'} Cu板=${hasCopperPlate?'有':'无'}`, `asm-wait-${b.id}`);
           }
         }
         break;
@@ -786,14 +950,20 @@ function updateDefense(dt) {
 }
 
 function updateTower(tower, dt) {
-  // 冷却计时
   tower.fireCooldown -= dt;
 
-  // 寻找相邻弹药箱（需要有弹药）
   const ammoBox = findNearbyAmmoBox(tower.x, tower.y);
   if (!ammoBox || ammoBox.ammo < 1) {
-    // 无弹药，标记状态但不中止冷却
     tower._noAmmo = true;
+    // 检查有没有弹药箱（有但空 vs 根本没有）
+    const anyBox = [{x:tower.x+1,y:tower.y},{x:tower.x-1,y:tower.y},
+                    {x:tower.x,y:tower.y+1},{x:tower.x,y:tower.y-1}]
+      .map(d => getCell(d.x, d.y)).find(b => b && b.type==='ammo_box');
+    if (anyBox) {
+      dlog('tower', `炮塔(${tower.x},${tower.y}) 弹药箱空 ammo=${anyBox.ammo}`, `tower-noammo-${tower.id}`);
+    } else {
+      dlog('warn', `炮塔(${tower.x},${tower.y}) 周围无弹药箱！`, `tower-nobox-${tower.id}`);
+    }
     return;
   }
   tower._noAmmo = false;
@@ -821,11 +991,10 @@ function updateTower(tower, dt) {
   });
   const target = inRange[0];
 
-  // 消耗弹药，重置射击冷却
   ammoBox.ammo--;
-  tower.fireCooldown = 1.0; // 每秒1发
+  tower.fireCooldown = 1.0;
+  dlog('tower', `炮塔(${tower.x},${tower.y}) 🔫 射击 剩余弹药=${ammoBox.ammo}`, `tower-fire-${tower.id}`);
 
-  // 创建子弹飞行动画（格坐标传入）
   if (SCENE) SCENE.spawnBullet(tower.x, tower.y, target.gx, target.gy);
 
   // 立即造成伤害（简化物理，不等飞行时间）
