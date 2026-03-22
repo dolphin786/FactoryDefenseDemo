@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工厂守卫战 - Factory Defense</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#1a252f;
+  font-family:'Microsoft YaHei','SimHei',sans-serif;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  height:100vh;
+  user-select:none;
+}
+#game-container {
+  display:flex;
+  flex-direction:column;
+  width:100%;
+  max-width:920px;
+  height:100vh;
+}
+/* 顶部信息栏 */
+#top-bar {
+  background:#2C3E50;
+  border-bottom:2px solid #34495E;
+  padding:5px 10px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  flex-shrink:0;
+  flex-wrap:wrap;
+  min-height:36px;
+}
+.info-item { color:#ECF0F1; font-size:12px; display:flex; align-items:center; gap:3px; }
+.val { color:#F39C12; font-weight:bold; }
+.hp-val { color:#27AE60; font-weight:bold; }
+.hp-val.low { color:#E74C3C; animation:pulse 0.5s infinite alternate; }
+@keyframes pulse { from{opacity:1} to{opacity:0.5} }
+#speed-controls { display:flex; gap:4px; margin-left:auto; }
+.speed-btn {
+  background:#34495E; color:#ECF0F1; border:1px solid #4A6278;
+  padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;
+  transition:all 0.1s;
+}
+.speed-btn:hover { background:#4A6278; }
+.speed-btn.active { background:#F39C12; color:#2C3E50; border-color:#E67E22; font-weight:bold; }
+/* 主游戏区域 */
+#game-area {
+  flex:1;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  background:#1a252f;
+  overflow:hidden;
+  min-height:0;
+}
+/* 资源栏 */
+#resource-bar {
+  background:#2C3E50;
+  border-top:1px solid #34495E;
+  border-bottom:1px solid #34495E;
+  padding:4px 10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-shrink:0;
+  flex-wrap:wrap;
+  min-height:28px;
+}
+.resource-item { display:flex; align-items:center; gap:3px; font-size:11px; color:#BDC3C7; }
+.resource-item .rcount { color:#F39C12; font-weight:bold; min-width:20px; text-align:right; }
+/* 卡牌栏 */
+#card-bar {
+  background:#263545;
+  padding:6px 10px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-shrink:0;
+  overflow-x:auto;
+  min-height:86px;
+}
+#belt-btn {
+  background:#607D8B; color:white; border:2px solid #78909C;
+  padding:5px 8px; border-radius:6px; cursor:pointer;
+  font-size:10px; font-family:inherit; min-width:48px; max-width:52px;
+  text-align:center; flex-shrink:0; line-height:1.3;
+}
+#belt-btn:hover { background:#78909C; }
+#belt-btn.active { background:#F39C12; border-color:#E67E22; color:#2C3E50; font-weight:bold; }
+.card {
+  background:#34495E; border:2px solid #4A6278;
+  border-radius:7px; padding:5px 6px;
+  cursor:pointer; min-width:62px; max-width:66px;
+  text-align:center; flex-shrink:0;
+  transition:all 0.12s; position:relative;
+}
+.card:hover { border-color:#F39C12; transform:translateY(-2px); box-shadow:0 3px 8px #00000040; }
+.card.selected { border-color:#F39C12; background:#3D5166; box-shadow:0 0 10px #F39C1260; transform:translateY(-3px); }
+.card .cicon { font-size:16px; line-height:1.3; }
+.card .cname { font-size:9px; color:#ECF0F1; margin-top:1px; font-weight:bold; }
+.card .cdesc { font-size:8px; color:#95A5A6; margin-top:1px; }
+.card .cdur { position:absolute; top:2px; right:3px; font-size:8px; color:#F39C12; font-weight:bold; }
+.card.res { border-color:#27AE60; }
+.card.def { border-color:#E74C3C; }
+.card.pro { border-color:#3498DB; }
+.card.sto { border-color:#F39C12; }
+#start-btn {
+  background:#27AE60; color:white; border:none;
+  padding:8px 16px; border-radius:8px; cursor:pointer;
+  font-size:13px; font-family:inherit; font-weight:bold;
+  flex-shrink:0; margin-left:auto; white-space:nowrap;
+  transition:background 0.15s;
+}
+#start-btn:hover { background:#2ECC71; }
+/* 弹窗 */
+#overlay {
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  background:rgba(0,0,0,0.78); z-index:1000;
+  display:none; justify-content:center; align-items:center;
+}
+#overlay.show { display:flex; }
+#dialog {
+  background:#2C3E50; border:2px solid #F39C12;
+  border-radius:12px; padding:24px 32px;
+  text-align:center; max-width:420px; width:92%;
+  color:#ECF0F1; box-shadow:0 8px 32px #00000080;
+}
+#dialog h2 { font-size:22px; margin-bottom:10px; }
+#dialog p { font-size:13px; color:#BDC3C7; margin:5px 0; }
+.card-choices { display:flex; gap:10px; margin:14px 0; justify-content:center; flex-wrap:wrap; }
+.choice-card {
+  background:#34495E; border:2px solid #4A6278;
+  border-radius:8px; padding:10px 12px; cursor:pointer;
+  min-width:90px; text-align:center; transition:all 0.15s;
+}
+.choice-card:hover { border-color:#F39C12; background:#3D5166; transform:translateY(-2px); }
+.choice-card .cico { font-size:22px; }
+.choice-card .cnm { font-size:11px; margin-top:4px; color:#ECF0F1; }
+.dbtn {
+  background:#3498DB; color:white; border:none;
+  padding:9px 22px; border-radius:8px; cursor:pointer;
+  font-size:13px; font-family:inherit; margin:5px 4px;
+  transition:background 0.15s;
+}
+.dbtn:hover { background:#2980B9; }
+.dbtn.red { background:#E74C3C; }
+.dbtn.red:hover { background:#C0392B; }
+.dbtn.grn { background:#27AE60; }
+.dbtn.grn:hover { background:#2ECC71; }
+/* 波次提示 */
+#wave-announce {
+  position:fixed; top:45%; left:50%;
+  transform:translate(-50%,-50%);
+  background:rgba(231,76,60,0.92);
+  color:white; font-size:26px; font-weight:bold;
+  padding:14px 32px; border-radius:10px;
+  pointer-events:none; z-index:500;
+  display:none; text-shadow:0 2px 4px #00000060;
+  border:2px solid rgba(255,255,255,0.3);
+}
+/* 操作提示 */
+#hint-bar {
+  position:fixed; bottom:92px; left:50%;
+  transform:translateX(-50%);
+  background:rgba(0,0,0,0.75); color:#F39C12;
+  font-size:11px; padding:3px 12px; border-radius:4px;
+  pointer-events:none; z-index:400; display:none;
+  white-space:nowrap;
+}
+/* 起始卡组选卡样式 */
+.starter-decks { display:flex; gap:12px; margin:14px 0; justify-content:center; flex-wrap:wrap; }
+.starter-deck {
+  background:#34495E; border:2px solid #4A6278;
+  border-radius:10px; padding:14px 16px; cursor:pointer;
+  width:120px; text-align:center; transition:all 0.15s;
+}
+.starter-deck:hover { transform:translateY(-3px); box-shadow:0 6px 16px #00000060; }
+.starter-deck.chosen { box-shadow:0 0 0 3px #F39C12; }
+.starter-deck .dk-icon { font-size:28px; margin-bottom:6px; }
+.starter-deck .dk-name { font-size:13px; font-weight:bold; color:#ECF0F1; margin-bottom:4px; }
+.starter-deck .dk-desc { font-size:10px; color:#95A5A6; }
+.starter-deck .dk-cards { margin-top:8px; font-size:9px; color:#BDC3C7; line-height:1.6; text-align:left; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <!-- 顶部信息栏 -->
+  <div id="top-bar">
+    <div class="info-item">💎核心: <span class="hp-val" id="core-hp">200/200</span></div>
+    <div class="info-item">🌊波次: <span class="val" id="wave-info">0/3</span></div>
+    <div class="info-item" id="cd-wrap" style="display:none">⏱下波: <span class="val" id="wave-cd">--</span>s</div>
+    <div class="info-item">🏆关卡: <span class="val" id="level-info">1</span></div>
+    <div class="info-item" id="phase-info" style="color:#95A5A6">【准备阶段】</div>
+    <div id="speed-controls">
+      <button class="speed-btn" id="btn-pause" onclick="setSpeed(0)">⏸暂停</button>
+      <button class="speed-btn active" id="btn-1x" onclick="setSpeed(1)">1x</button>
+      <button class="speed-btn" id="btn-2x" onclick="setSpeed(2)">2x</button>
+      <button class="speed-btn" id="btn-4x" onclick="setSpeed(4)">4x</button>
+    </div>
+  </div>
+  <!-- Phaser画布 -->
+  <div id="game-area"></div>
+  <!-- 资源栏 -->
+  <div id="resource-bar">
+    <span style="color:#95A5A6;font-size:11px;flex-shrink:0">资源:</span>
+    <div class="resource-item">⛏铁矿<span class="rcount" id="res-iron_ore">0</span></div>
+    <div class="resource-item">🪨铜矿<span class="rcount" id="res-copper_ore">0</span></div>
+    <div class="resource-item">🔩铁板<span class="rcount" id="res-iron_plate">0</span></div>
+    <div class="resource-item">🟤铜板<span class="rcount" id="res-copper_plate">0</span></div>
+    <div class="resource-item">🟡子弹<span class="rcount" id="res-bullet">0</span></div>
+  </div>
+  <!-- 卡牌栏 -->
+  <div id="card-bar">
+    <button id="belt-btn" onclick="toggleBeltMode()">传送带<br>→</button>
+    <div id="hand-cards" style="display:flex;gap:6px;align-items:center;"></div>
+    <button id="start-btn" onclick="startDefense()">▶ 开始防御</button>
+  </div>
+</div>
+
+<!-- 波次提示 -->
+<div id="wave-announce"></div>
+<!-- 操作提示 -->
+<div id="hint-bar">R键旋转方向 | 右键取消/移除建筑</div>
+
+<!-- 结算弹窗 -->
+<div id="overlay">
+  <div id="dialog">
+    <h2 id="dlg-title"></h2>
+    <div id="dlg-body"></div>
+    <div id="dlg-btns"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script>
+'use strict';
+
+// ================================================================
+//  常量配置
+// ================================================================
+const CELL = 50;      // 每格像素大小
+const GW = 10;        // 网格宽度
+const GH = 10;        // 网格高度
+const CW = CELL * GW; // Canvas宽度 500
+const CH = CELL * GH; // Canvas高度 500
+
+// 核心位置（终点）
+const CORE_X = 9, CORE_Y = 7;
+
+// 敌人预设路径（格坐标）
+const ENEMY_PATH = [
+  {x:0,y:5}, {x:3,y:5}, {x:3,y:2}, {x:7,y:2}, {x:7,y:7}, {x:9,y:7}
+];
+
+// 敌人类型配置
+const ENEMY_CFGS = {
+  bug: {
+    health:30, speed:1.0, damage:10, atkSpd:1.0,
+    emoji:'🐛', radius:16, color:0x8E44AD, name:'小虫子'
+  },
+  tank_bug: {
+    health:100, speed:0.5, damage:20, atkSpd:2.0,
+    emoji:'🪲', radius:22, color:0x5B2C6F, name:'坦克虫'
+  }
+};
+
+// 建筑类型配置
+const BLDG_CFGS = {
+  iron_ore_node:   {hp:999, emoji:'⛏️', color:0x6D4C41, name:'铁矿', desc:'1铁矿/秒'},
+  copper_ore_node: {hp:999, emoji:'🪨', color:0xAD6922, name:'铜矿', desc:'1铜矿/秒'},
+  furnace:         {hp:80,  emoji:'🔥', color:0xC0392B, name:'熔炉',  desc:'矿→板 2s'},
+  assembler:       {hp:80,  emoji:'⚙️', color:0x2471A3, name:'组装机',desc:'板→子弹x5 1s'},
+  gun_tower:       {hp:50,  emoji:'🔫', color:0x922B21, name:'机枪塔',desc:'射程3，1发/s'},
+  wall:            {hp:100, emoji:'🧱', color:0x707B7C, name:'围墙',  desc:'HP:100'},
+  ammo_box:        {hp:60,  emoji:'📦', color:0xD4AC0D, name:'弹药箱',desc:'存弹50发'},
+  conveyor:        {hp:999, emoji:'→',  color:0x4A5568, name:'传送带',desc:'运输资源'},
+  core:            {hp:200, emoji:'💎', color:0xE67E22, name:'核心',  desc:'守护目标'}
+};
+
+// 关卡配置（3关）
+const LEVELS = [
+  { // 第1关
+    totalWaves:3, waveCooldown:20,
+    waves:[
+      {groups:[{type:'bug',count:5,interval:2.0}]},
+      {groups:[{type:'bug',count:5,interval:1.5}]},
+      {groups:[{type:'bug',count:7,interval:1.0}]}
+    ]
+  },
+  { // 第2关
+    totalWaves:4, waveCooldown:25,
+    waves:[
+      {groups:[{type:'bug',count:8,interval:2.0}]},
+      {groups:[{type:'bug',count:5,interval:1.5},{type:'tank_bug',count:2,interval:3.0}]},
+      {groups:[{type:'bug',count:10,interval:1.0}]},
+      {groups:[{type:'tank_bug',count:3,interval:2.5}]}
+    ]
+  },
+  { // 第3关
+    totalWaves:5, waveCooldown:30,
+    waves:[
+      {groups:[{type:'bug',count:6,interval:2.0}]},
+      {groups:[{type:'bug',count:8,interval:1.5},{type:'tank_bug',count:1,interval:4.0}]},
+      {groups:[{type:'bug',count:10,interval:1.0},{type:'tank_bug',count:2,interval:3.0}]},
+      {groups:[{type:'bug',count:12,interval:0.8},{type:'tank_bug',count:2,interval:2.0}]},
+      {groups:[{type:'bug',count:8,interval:0.8},{type:'tank_bug',count:4,interval:2.0}]}
+    ]
+  }
+];
+
+// 奖励卡池
+const REWARD_POOL = [
+  {type:'defense',   buildingType:'gun_tower'},
+  {type:'defense',   buildingType:'wall'},
+  {type:'defense',   buildingType:'wall'},
+  {type:'storage',   buildingType:'ammo_box'},
+  {type:'production',buildingType:'furnace'},
+  {type:'production',buildingType:'assembler'},
+  {type:'resource',  resourceType:'iron',   durability:2},
+  {type:'resource',  resourceType:'copper', durability:2},
+  {type:'defense',   buildingType:'gun_tower'},
+  {type:'storage',   buildingType:'ammo_box'},
+];
+
+// ================================================================
+//  游戏状态（全局单例）
+// ================================================================
+let GS = null;   // 游戏状态对象
+let SCENE = null; // Phaser场景引用
+let CARD_ID = 1;  // 卡牌ID计数器
+
+function createGS(level) {
+  level = level || 1;
+  const levelCfg = LEVELS[level-1] || LEVELS[0];
+  return {
+    phase: 'prepare', // 'prepare' | 'defense' | 'result'
+    level: level,
+    timeSpeed: 1,
+    paused: false,
+    gameOver: false,
+    // 核心建筑
+    core: {health:200, maxHealth:200},
+    // 波次
+    wave: {current:0, total:levelCfg.totalWaves, inProgress:false, cooldown:0, counting:false},
+    // 敌人列表
+    enemies: [],
+    eidCtr: 1,
+    // 网格 [y][x] = building | null
+    grid: Array.from({length:GH}, ()=>new Array(GW).fill(null)),
+    // 建筑列表
+    buildings: [],
+    bidCtr: 1,
+    // 手牌
+    hand: [],
+    // 资源池（全局简化）
+    res: {iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0},
+    // UI状态
+    selectedCard: null,
+    beltMode: false,
+    selectedDir: 0, // 0=右 1=下 2=左 3=上
+    // 波次生成队列
+    spawnQueue: [],
+    spawnTimer: 0,
+  };
+}
+
+// ================================================================
+//  起始卡组定义（3套，保证第一关可通关）
+//  公共基础：铁矿x2、铜矿x2、熔炉x2、组装机x1、弹药箱x1、机枪塔x2
+//  各套在此基础上额外附赠不同侧重的牌
+// ================================================================
+const STARTER_DECKS = [
+  {
+    name: '🏰 防御重点',
+    desc: '多墙多炮，坚不可摧',
+    color: '#E74C3C',
+    cards: [
+      // 基础生产链
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'assembler'},
+      {type:'storage',    buildingType:'ammo_box'},
+      // 防御
+      {type:'defense',    buildingType:'gun_tower'},
+      {type:'defense',    buildingType:'gun_tower'},
+      // 额外：多围墙，适合堵路
+      {type:'defense',    buildingType:'wall'},
+      {type:'defense',    buildingType:'wall'},
+      {type:'defense',    buildingType:'wall'},
+      {type:'defense',    buildingType:'wall'},
+    ]
+  },
+  {
+    name: '⚙️ 工厂重点',
+    desc: '双炉高产，弹药无忧',
+    color: '#3498DB',
+    cards: [
+      // 基础生产链
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'assembler'},
+      // 额外：双弹药箱 + 双组装机，产弹极快
+      {type:'storage',    buildingType:'ammo_box'},
+      {type:'storage',    buildingType:'ammo_box'},
+      {type:'production', buildingType:'assembler'},
+      // 防御
+      {type:'defense',    buildingType:'gun_tower'},
+      {type:'defense',    buildingType:'gun_tower'},
+      {type:'defense',    buildingType:'wall'},
+      {type:'defense',    buildingType:'wall'},
+    ]
+  },
+  {
+    name: '⚖️ 均衡配置',
+    desc: '攻守兼备，灵活应对',
+    color: '#27AE60',
+    cards: [
+      // 基础生产链
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'iron',   durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'resource',   resourceType:'copper', durability:2},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'furnace'},
+      {type:'production', buildingType:'assembler'},
+      {type:'storage',    buildingType:'ammo_box'},
+      // 防御
+      {type:'defense',    buildingType:'gun_tower'},
+      {type:'defense',    buildingType:'gun_tower'},
+      {type:'defense',    buildingType:'wall'},
+      {type:'defense',    buildingType:'wall'},
+      // 额外：再来一个炮塔
+      {type:'defense',    buildingType:'gun_tower'},
+    ]
+  },
+];
+
+function initHandFromDeck(deckIndex) {
+  CARD_ID = 1;
+  const deck = STARTER_DECKS[deckIndex];
+  GS.hand = deck.cards.map(c => ({id:CARD_ID++, ...c}));
+}
+
+// 兼容旧调用，默认用均衡套
+function initHand() {
+  initHandFromDeck(2);
+}
+
+// ================================================================
+//  网格辅助函数
+// ================================================================
+function inGrid(x, y) { return x>=0 && x<GW && y>=0 && y<GH; }
+
+function getCell(x, y) { return inGrid(x,y) ? GS.grid[y][x] : null; }
+
+function setCell(x, y, b) { if (inGrid(x,y)) GS.grid[y][x] = b; }
+
+/** 放置建筑，返回建筑对象或null */
+function placeBuilding(x, y, type, dir, sourceCard) {
+  if (!inGrid(x,y)) return null;
+  if (GS.grid[y][x] !== null) return null;
+
+  const cfg = BLDG_CFGS[type];
+  const b = {
+    id: GS.bidCtr++,
+    x, y, type, dir: dir||0,
+    health: cfg.hp, maxHealth: cfg.hp,
+    sourceCard: sourceCard||null,
+    // 生产计时器
+    prodTimer: 0,
+    // 炮塔冷却
+    fireCooldown: 0,
+    // 弹药箱
+    ammo: 0, ammoMax: 50,
+  };
+  GS.grid[y][x] = b;
+  GS.buildings.push(b);
+  return b;
+}
+
+/** 移除建筑（准备阶段），归还手牌 */
+function removeBuilding(x, y) {
+  const b = getCell(x, y);
+  if (!b || b.type==='core') return;
+  if (GS.phase !== 'prepare') return;
+  GS.grid[y][x] = null;
+  GS.buildings = GS.buildings.filter(bb=>bb.id!==b.id);
+  if (SCENE) SCENE.removeBuildingVisual(b);
+  if (b.sourceCard) {
+    GS.hand.push(b.sourceCard);
+    updateCardUI();
+  }
+}
+
+/** 摧毁建筑（战斗），不归还手牌 */
+function destroyBuilding(b) {
+  if (!b) return;
+  GS.grid[b.y][b.x] = null;
+  GS.buildings = GS.buildings.filter(bb=>bb.id!==b.id);
+  if (SCENE) {
+    SCENE.spawnExplosion(b.x*CELL+CELL/2, b.y*CELL+CELL/2);
+    SCENE.removeBuildingVisual(b);
+  }
+}
+
+/** 获取路径经过的所有格子（含重复，按顺序） */
+function getPathCells() {
+  const cells = [];
+  for (let i=0; i<ENEMY_PATH.length-1; i++) {
+    const s = ENEMY_PATH[i], e = ENEMY_PATH[i+1];
+    if (s.x===e.x) {
+      const minY=Math.min(s.y,e.y), maxY=Math.max(s.y,e.y);
+      for (let y=minY; y<=maxY; y++) cells.push({x:s.x,y});
+    } else {
+      const minX=Math.min(s.x,e.x), maxX=Math.max(s.x,e.x);
+      for (let x=minX; x<=maxX; x++) cells.push({x,y:s.y});
+    }
+  }
+  return cells;
+}
+
+// ================================================================
+//  生产系统
+// ================================================================
+function updateProduction(dt) {
+  for (const b of GS.buildings) {
+    switch(b.type) {
+
+      // --- 铁矿点：每秒产1铁矿石 ---
+      case 'iron_ore_node':
+        b.prodTimer += dt;
+        if (b.prodTimer >= 1) {
+          b.prodTimer -= 1;
+          GS.res.iron_ore++;
+        }
+        break;
+
+      // --- 铜矿点：每秒产1铜矿石 ---
+      case 'copper_ore_node':
+        b.prodTimer += dt;
+        if (b.prodTimer >= 1) {
+          b.prodTimer -= 1;
+          GS.res.copper_ore++;
+        }
+        break;
+
+      // --- 熔炉：2秒加工一次，铁矿→铁板 或 铜矿→铜板 ---
+      case 'furnace':
+        b.prodTimer += dt;
+        if (b.prodTimer >= 2) {
+          // 优先加工铁矿
+          if (GS.res.iron_ore > 0) {
+            GS.res.iron_ore--;
+            GS.res.iron_plate++;
+            b.prodTimer = 0;
+          } else if (GS.res.copper_ore > 0) {
+            GS.res.copper_ore--;
+            GS.res.copper_plate++;
+            b.prodTimer = 0;
+          } else {
+            b.prodTimer = 1.99; // 无原料，下一帧继续等待
+          }
+        }
+        break;
+
+      // --- 组装机：1秒产5发子弹，消耗铁板+铜板 ---
+      case 'assembler':
+        b.prodTimer += dt;
+        if (b.prodTimer >= 1) {
+          if (GS.res.iron_plate > 0 && GS.res.copper_plate > 0) {
+            GS.res.iron_plate--;
+            GS.res.copper_plate--;
+            b.prodTimer = 0;
+            // 将子弹存入相邻弹药箱，多余的进全局显示池
+            const stored = storeAmmoNearby(b.x, b.y, 5);
+            GS.res.bullet = Math.max(0, GS.res.bullet + (5 - stored));
+          } else {
+            b.prodTimer = 0.99; // 无原料等待
+          }
+        }
+        break;
+    }
+  }
+}
+
+/** 将子弹存入邻近弹药箱，返回实际存入量 */
+function storeAmmoNearby(x, y, amount) {
+  const dirs = [{x:x+1,y},{x:x-1,y},{x,y:y+1},{x,y:y-1}];
+  let stored = 0;
+  for (const d of dirs) {
+    const nb = getCell(d.x, d.y);
+    if (nb && nb.type==='ammo_box') {
+      const space = nb.ammoMax - nb.ammo;
+      const add = Math.min(space, amount-stored);
+      nb.ammo += add;
+      stored += add;
+      if (stored >= amount) break;
+    }
+  }
+  return stored;
+}
+
+// ================================================================
+//  防御系统（机枪塔）
+// ================================================================
+function updateDefense(dt) {
+  for (const b of GS.buildings) {
+    if (b.type === 'gun_tower') {
+      updateTower(b, dt);
+    }
+  }
+}
+
+function updateTower(tower, dt) {
+  // 冷却计时
+  tower.fireCooldown -= dt;
+
+  // 寻找相邻弹药箱（需要有弹药）
+  const ammoBox = findNearbyAmmoBox(tower.x, tower.y);
+  if (!ammoBox || ammoBox.ammo < 1) {
+    // 无弹药，标记状态但不中止冷却
+    tower._noAmmo = true;
+    return;
+  }
+  tower._noAmmo = false;
+
+  if (tower.fireCooldown > 0) return;
+
+  // 寻找射程内存活敌人（使用格坐标gx/gy）
+  const range = 3; // 射程格数
+  const inRange = GS.enemies.filter(e => {
+    if (e.state==='dead') return false;
+    const dx = e.gx - tower.x;
+    const dy = e.gy - tower.y;
+    return Math.sqrt(dx*dx+dy*dy) <= range;
+  });
+
+  if (inRange.length === 0) return;
+
+  // 优先攻击最接近核心（路径最远）的敌人
+  inRange.sort((a, b) => {
+    if (b.pathIndex !== a.pathIndex) return b.pathIndex - a.pathIndex;
+    // pathIndex相同时按到核心的实际距离排序（越近越优先）
+    const da = Math.hypot(a.gx-CORE_X, a.gy-CORE_Y);
+    const db = Math.hypot(b.gx-CORE_X, b.gy-CORE_Y);
+    return da - db;
+  });
+  const target = inRange[0];
+
+  // 消耗弹药，重置射击冷却
+  ammoBox.ammo--;
+  tower.fireCooldown = 1.0; // 每秒1发
+
+  // 创建子弹飞行动画（格坐标传入）
+  if (SCENE) SCENE.spawnBullet(tower.x, tower.y, target.gx, target.gy);
+
+  // 立即造成伤害（简化物理，不等飞行时间）
+  target.health -= 10;
+  target._flashTimer = 0.15; // 受击闪红时间
+  if (target.health <= 0) {
+    target.state = 'dead';
+  }
+}
+
+function findNearbyAmmoBox(x, y) {
+  const dirs = [{x:x+1,y},{x:x-1,y},{x,y:y+1},{x,y:y-1}];
+  for (const d of dirs) {
+    const nb = getCell(d.x, d.y);
+    if (nb && nb.type==='ammo_box' && nb.ammo > 0) return nb;
+  }
+  return null;
+}
+
+// ================================================================
+//  敌人系统
+// ================================================================
+function spawnEnemy(type) {
+  const cfg = ENEMY_CFGS[type];
+  const start = ENEMY_PATH[0];
+  const e = {
+    id: GS.eidCtr++,
+    type,
+    health: cfg.health, maxHealth: cfg.health,
+    speed: cfg.speed, damage: cfg.damage, atkSpd: cfg.atkSpd,
+    emoji: cfg.emoji, radius: cfg.radius, color: cfg.color, name: cfg.name,
+    // 位置使用"格坐标"（整数格子坐标，非像素），敌人在格子中心移动
+    // gx/gy表示当前位置（小数格坐标，格子左上角为0,0）
+    gx: start.x, gy: start.y,
+    pathIndex: 1, // 下一个目标路径点的索引
+    state: 'moving', // 'moving' | 'attacking' | 'dead'
+    target: null,    // 攻击目标 ('core' 字符串 或 building对象)
+    atkCooldown: 0,
+    _flashTimer: 0,
+  };
+  GS.enemies.push(e);
+}
+
+function updateEnemies(dt) {
+  for (const e of GS.enemies) {
+    if (e.state==='dead') continue;
+    if (e._flashTimer>0) e._flashTimer-=dt;
+
+    if (e.state==='moving') {
+      moveEnemy(e, dt);
+    } else if (e.state==='attacking') {
+      attackEnemy(e, dt);
+    }
+  }
+  // 清理死亡敌人
+  GS.enemies = GS.enemies.filter(e => e.state!=='dead');
+}
+
+function moveEnemy(e, dt) {
+  // 已到达所有路径点（应攻击核心）
+  if (e.pathIndex >= ENEMY_PATH.length) {
+    e.state = 'attacking';
+    e.target = 'core';
+    return;
+  }
+
+  // 目标路径点（整数格坐标）
+  const targetPt = ENEMY_PATH[e.pathIndex];
+  const tx = targetPt.x, ty = targetPt.y;
+  const dx = tx - e.gx, dy = ty - e.gy;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+
+  // 检查目标格子是否有阻挡建筑
+  const blockB = getCell(tx, ty);
+  if (blockB && blockB.type !== 'core') {
+    // 目标格有建筑，先靠近到该格再攻击
+    if (dist < 0.9) {
+      e.state = 'attacking';
+      e.target = blockB;
+    } else {
+      // 继续向目标移动（稍微靠近建筑）
+      const move = e.speed * dt;
+      e.gx += (dx/dist)*move;
+      e.gy += (dy/dist)*move;
+    }
+    return;
+  }
+
+  // 到达路径点
+  if (dist < 0.08) {
+    e.gx = tx; e.gy = ty;
+    e.pathIndex++;
+    if (e.pathIndex >= ENEMY_PATH.length) {
+      e.state = 'attacking';
+      e.target = 'core';
+    }
+    return;
+  }
+
+  // 向目标路径点移动
+  const move = e.speed * dt;
+  e.gx += (dx/dist)*move;
+  e.gy += (dy/dist)*move;
+}
+
+function attackEnemy(e, dt) {
+  e.atkCooldown -= dt;
+
+  if (e.target === 'core') {
+    // 攻击核心建筑
+    if (e.atkCooldown <= 0) {
+      e.atkCooldown = e.atkSpd;
+      GS.core.health = Math.max(0, GS.core.health - e.damage);
+      if (SCENE) {
+        SCENE.cameras.main.flash(200, 180, 0, 0);
+        SCENE.cameras.main.shake(150, 0.008);
+        SCENE.spawnDamageRect(CORE_X*CELL+CELL/2, CORE_Y*CELL+CELL/2);
+      }
+      updateCoreHP();
+      if (GS.core.health <= 0) triggerGameOver(false);
+    }
+    return;
+  }
+
+  // 攻击普通建筑
+  const b = e.target;
+  // 检查目标建筑是否还存在于buildings列表中
+  if (!b || !GS.buildings.find(bb=>bb.id===b.id)) {
+    // 目标已被摧毁，继续沿路径前进
+    e.state = 'moving';
+    e.target = null;
+    e.atkCooldown = 0;
+    return;
+  }
+
+  if (e.atkCooldown <= 0) {
+    e.atkCooldown = e.atkSpd;
+    b.health = Math.max(0, b.health - e.damage);
+    if (SCENE) SCENE.spawnDamageRect(b.x*CELL+CELL/2, b.y*CELL+CELL/2);
+    if (b.health <= 0) {
+      // 建筑被摧毁，继续前进
+      destroyBuilding(b);
+      e.state = 'moving';
+      e.target = null;
+      e.atkCooldown = 0;
+    }
+  }
+}
+
+// ================================================================
+//  波次管理
+// ================================================================
+function updateWave(dt) {
+  const lvCfg = LEVELS[GS.level-1];
+  const wv = GS.wave;
+
+  // 处理敌人生成队列
+  if (GS.spawnQueue.length > 0) {
+    GS.spawnTimer -= dt;
+    if (GS.spawnTimer <= 0) {
+      const item = GS.spawnQueue.shift();
+      spawnEnemy(item.type);
+      // 下一个敌人的等待时间
+      if (GS.spawnQueue.length > 0) {
+        GS.spawnTimer = GS.spawnQueue[0].delay;
+      }
+    }
+  }
+
+  // 检查当前波次是否结束（队列空且存活敌人为0）
+  if (wv.inProgress) {
+    const aliveCount = GS.enemies.filter(e=>e.state!=='dead').length;
+    // 额外条件：spawnTimer<=0 防止刚开始时误判
+    if (aliveCount===0 && GS.spawnQueue.length===0 && GS.spawnTimer<=0) {
+      // 本波全部消灭
+      wv.inProgress = false;
+      if (wv.current >= wv.total) {
+        // 全部波次完成，胜利！
+        triggerGameOver(true);
+      } else {
+        // 开启下一波倒计时
+        wv.cooldown = lvCfg.waveCooldown;
+        wv.counting = true;
+        document.getElementById('cd-wrap').style.display='flex';
+      }
+    }
+  }
+
+  // 波次间倒计时
+  if (wv.counting) {
+    wv.cooldown -= dt;
+    const el = document.getElementById('wave-cd');
+    if (el) el.textContent = Math.max(0, Math.ceil(wv.cooldown));
+    if (wv.cooldown <= 0) {
+      wv.counting = false;
+      document.getElementById('cd-wrap').style.display='none';
+      launchNextWave();
+    }
+  }
+}
+
+function launchNextWave() {
+  const lvCfg = LEVELS[GS.level-1];
+  GS.wave.current++;
+  GS.wave.inProgress = true;
+
+  const waveData = lvCfg.waves[GS.wave.current-1];
+  if (!waveData) return;
+
+  // 构建生成队列：交替插入各组敌人，让混合波次更均匀
+  GS.spawnQueue = [];
+  if (waveData.groups.length === 1) {
+    // 单组：直接按顺序
+    const grp = waveData.groups[0];
+    for (let i=0; i<grp.count; i++) {
+      GS.spawnQueue.push({type:grp.type, delay:grp.interval});
+    }
+  } else {
+    // 多组：交替插入（每个小虫子后面插1只坦克虫等比例）
+    const expanded = [];
+    for (const grp of waveData.groups) {
+      for (let i=0; i<grp.count; i++) expanded.push({type:grp.type, delay:grp.interval});
+    }
+    // 简单交织：按最短间隔排序，交替放
+    GS.spawnQueue = expanded; // 直接顺序，简化实现
+  }
+  GS.spawnTimer = 0.5; // 第一个敌人0.5秒后出现
+
+  showWaveText(`第 ${GS.wave.current} 波来袭！`);
+  updateTopBar();
+}
+
+function showWaveText(txt) {
+  const el = document.getElementById('wave-announce');
+  el.textContent = txt;
+  el.style.display = 'block';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(()=>{ el.style.display='none'; }, 2500);
+}
+
+// ================================================================
+//  游戏流程控制
+// ================================================================
+function startDefense() {
+  if (GS.phase!=='prepare') return;
+  GS.phase = 'defense';
+
+  const lvCfg = LEVELS[GS.level-1];
+  GS.wave.total = lvCfg.totalWaves;
+  GS.wave.current = 0;
+  GS.wave.inProgress = false;
+  GS.wave.counting = true;
+  GS.wave.cooldown = 3; // 3秒后第一波
+
+  document.getElementById('start-btn').style.display = 'none';
+  document.getElementById('cd-wrap').style.display = 'flex';
+  document.getElementById('phase-info').textContent = '【防御阶段】';
+  document.getElementById('phase-info').style.color = '#E74C3C';
+  updateTopBar();
+  showWaveText('防御阶段开始！');
+}
+
+function triggerGameOver(won) {
+  if (GS.gameOver) return;
+  GS.gameOver = true;
+  GS.phase = 'result';
+  setTimeout(()=>{ won ? showVictoryDlg() : showDefeatDlg(); }, 600);
+}
+
+function showVictoryDlg() {
+  document.getElementById('dlg-title').textContent = '🎉 防御成功！';
+  document.getElementById('dlg-title').style.color = '#F39C12';
+
+  let bodyHtml = `
+    <p>成功抵御 <strong>${GS.wave.total}</strong> 波敌人！</p>
+    <p>核心剩余血量: <strong style="color:#27AE60">${GS.core.health}/${GS.core.maxHealth}</strong></p>
+  `;
+
+  if (GS.level < 3) {
+    bodyHtml += `<p style="margin-top:12px;color:#F39C12;font-size:14px;">选择一张新建筑卡加入手牌：</p>`;
+  }
+
+  document.getElementById('dlg-body').innerHTML = bodyHtml;
+  document.getElementById('dlg-btns').innerHTML = '';
+
+  if (GS.level < 3) {
+    // 随机抽3张奖励卡
+    const pool = [...REWARD_POOL];
+    const choices = [];
+    while (choices.length < 3 && pool.length > 0) {
+      const idx = Math.floor(Math.random()*pool.length);
+      choices.push(pool.splice(idx,1)[0]);
+    }
+    const choiceDiv = document.createElement('div');
+    choiceDiv.className = 'card-choices';
+    for (const ch of choices) {
+      const card = document.createElement('div');
+      card.className = 'choice-card';
+      let ico='', nm='';
+      if (ch.type==='resource') {
+        ico = ch.resourceType==='iron'?'⛏️':'🪨';
+        nm = ch.resourceType==='iron'?'铁矿':'铜矿';
+      } else {
+        const cfg = BLDG_CFGS[ch.buildingType];
+        ico=cfg.emoji; nm=cfg.name;
+      }
+      card.innerHTML = `<div class="cico">${ico}</div><div class="cnm">${nm}</div>`;
+      card.onclick = ()=>pickReward(ch);
+      choiceDiv.appendChild(card);
+    }
+    document.getElementById('dlg-body').appendChild(choiceDiv);
+  } else {
+    document.getElementById('dlg-body').innerHTML += `
+      <p style="color:#F39C12;font-size:20px;margin-top:16px;">🏆 全关通关！你是工厂守卫大师！</p>
+    `;
+    document.getElementById('dlg-btns').innerHTML =
+      `<button class="dbtn grn" onclick="restartAll()">再玩一次</button>`;
+  }
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+function showDefeatDlg() {
+  document.getElementById('dlg-title').textContent = '💀 防御失败';
+  document.getElementById('dlg-title').style.color = '#E74C3C';
+  document.getElementById('dlg-body').innerHTML = `
+    <p>核心已被摧毁！</p>
+    <p>成功抵御: <strong>${GS.wave.current}</strong>/${GS.wave.total} 波</p>
+  `;
+  document.getElementById('dlg-btns').innerHTML = `
+    <button class="dbtn red" onclick="retryLevel()">重试本关</button>
+    <button class="dbtn" onclick="restartAll()">重新开始</button>
+  `;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function pickReward(ch) {
+  // 所有旧资源卡耐久-1（先减耐久，再加奖励卡，避免新卡被多减一次）
+  for (const c of GS.hand) {
+    if (c.type==='resource' && c.durability != null) c.durability--;
+  }
+  GS.hand = GS.hand.filter(c => !(c.type==='resource' && c.durability<=0));
+
+  // 把奖励卡加入手牌
+  const card = {id:CARD_ID++, ...ch};
+  if (card.type==='resource' && card.durability==null) card.durability=2;
+  GS.hand.push(card);
+
+  // 进入下一关
+  document.getElementById('overlay').classList.remove('show');
+  GS.level++;
+  resetLevel(false); // 保留手牌
+}
+
+function retryLevel() {
+  document.getElementById('overlay').classList.remove('show');
+  resetLevel(false); // 保留手牌
+}
+
+function restartAll() {
+  document.getElementById('overlay').classList.remove('show');
+  GS.level = 1;
+  // 重新开始时重新选卡组
+  showStarterDeckDialog();
+}
+
+// ================================================================
+//  起始卡组选择弹窗
+// ================================================================
+function showStarterDeckDialog() {
+  const title = document.getElementById('dlg-title');
+  const body  = document.getElementById('dlg-body');
+  const btns  = document.getElementById('dlg-btns');
+
+  title.textContent = '⚗️ 选择起始卡组';
+  title.style.color = '#F39C12';
+
+  body.innerHTML = `<p style="margin-bottom:4px">三套卡组都包含：铁矿x2 · 铜矿x2 · 熔炉x2 · 组装机 · 弹药箱 · 机枪塔x2</p>
+    <p style="font-size:11px;color:#7F8C8D">各套额外附赠不同侧重的卡牌</p>`;
+
+  const decksDiv = document.createElement('div');
+  decksDiv.className = 'starter-decks';
+
+  STARTER_DECKS.forEach((deck, idx) => {
+    const el = document.createElement('div');
+    el.className = 'starter-deck';
+    el.style.borderColor = deck.color;
+
+    // 统计卡牌构成摘要（额外部分）
+    const extraCounts = {};
+    // 超出基础12张的部分（基础12张是前12张，多余的就是额外）
+    // 实际直接统计卡牌类型数量更直观
+    const typeCount = {};
+    for (const c of deck.cards) {
+      const key = c.type==='resource'
+        ? (c.resourceType==='iron'?'铁矿':'铜矿')
+        : (BLDG_CFGS[c.buildingType]?.name||c.buildingType);
+      typeCount[key] = (typeCount[key]||0)+1;
+    }
+    const summary = Object.entries(typeCount)
+      .map(([k,v])=>`${k}x${v}`)
+      .join(' · ');
+
+    el.innerHTML = `
+      <div class="dk-icon">${deck.name.slice(0,2)}</div>
+      <div class="dk-name">${deck.name.slice(2).trim()}</div>
+      <div class="dk-desc">${deck.desc}</div>
+      <div class="dk-cards">${summary}</div>
+    `;
+    el.onclick = () => pickStarterDeck(idx);
+    decksDiv.appendChild(el);
+  });
+
+  body.appendChild(decksDiv);
+  btns.innerHTML = '';
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+function pickStarterDeck(idx) {
+  document.getElementById('overlay').classList.remove('show');
+  // 先重置地图（不重置手牌，手牌接下来设置）
+  if (SCENE) SCENE.clearAll();
+  GS = createGS(GS.level);
+  initHandFromDeck(idx);
+
+  // 重置UI
+  document.getElementById('start-btn').style.display = '';
+  document.getElementById('cd-wrap').style.display = 'none';
+  document.getElementById('hint-bar').style.display = 'none';
+  document.getElementById('phase-info').textContent = '【准备阶段】';
+  document.getElementById('phase-info').style.color = '#95A5A6';
+  document.getElementById('btn-1x').classList.add('active');
+  document.getElementById('btn-2x').classList.remove('active');
+  document.getElementById('btn-4x').classList.remove('active');
+
+  if (SCENE) {
+    SCENE.drawGrid();
+    SCENE.drawPath();
+    const coreB = placeBuilding(CORE_X, CORE_Y, 'core', 0, null);
+    if (coreB) SCENE.addBuildingVisual(coreB);
+  }
+
+  updateTopBar();
+  updateResourceUI();
+  updateCardUI();
+}
+
+/** 重置关卡
+ * @param {boolean} resetHand - 是否重置手牌为初始
+ */
+function resetLevel(resetHand) {
+  // 保存当前关卡和手牌
+  const targetLevel = GS.level;
+  const prevHand = GS.hand;
+
+  // 清理Phaser场景对象
+  if (SCENE) SCENE.clearAll();
+
+  // 重建游戏状态（保留关卡编号）
+  GS = createGS(targetLevel);
+
+  if (resetHand) {
+    initHand(); // 重置为初始手牌
+  } else {
+    GS.hand = prevHand; // 保留当前手牌
+  }
+
+  // 重置UI
+  document.getElementById('start-btn').style.display = '';
+  document.getElementById('cd-wrap').style.display = 'none';
+  document.getElementById('hint-bar').style.display = 'none';
+  document.getElementById('phase-info').textContent = '【准备阶段】';
+  document.getElementById('phase-info').style.color = '#95A5A6';
+  document.getElementById('btn-1x').classList.add('active');
+  document.getElementById('btn-2x').classList.remove('active');
+  document.getElementById('btn-4x').classList.remove('active');
+
+  // 重新放置核心
+  if (SCENE) {
+    SCENE.drawGrid();
+    SCENE.drawPath();
+    const coreB = placeBuilding(CORE_X, CORE_Y, 'core', 0, null);
+    if (coreB) SCENE.addBuildingVisual(coreB);
+  }
+
+  updateTopBar();
+  updateResourceUI();
+  updateCardUI();
+}
+
+// ================================================================
+//  UI 更新函数
+// ================================================================
+function updateTopBar() {
+  document.getElementById('wave-info').textContent =
+    `${GS.wave.current}/${GS.wave.total||LEVELS[GS.level-1].totalWaves}`;
+  document.getElementById('level-info').textContent = GS.level;
+  updateCoreHP();
+}
+
+function updateCoreHP() {
+  const el = document.getElementById('core-hp');
+  if (!el) return;
+  el.textContent = `${GS.core.health}/${GS.core.maxHealth}`;
+  const ratio = GS.core.health/GS.core.maxHealth;
+  el.className = 'hp-val' + (ratio<0.3?' low':'');
+}
+
+function updateResourceUI() {
+  for (const [k,v] of Object.entries(GS.res)) {
+    const el = document.getElementById('res-'+k);
+    if (el) el.textContent = Math.floor(v);
+  }
+}
+
+function updateCardUI() {
+  const container = document.getElementById('hand-cards');
+  container.innerHTML = '';
+
+  for (const card of GS.hand) {
+    const div = document.createElement('div');
+    const cls = {resource:'res',production:'pro',defense:'def',storage:'sto'}[card.type]||'';
+    const sel = GS.selectedCard?.id===card.id ? ' selected' : '';
+    div.className = `card ${cls}${sel}`;
+
+    let ico='', nm='', desc='';
+    if (card.type==='resource') {
+      ico = card.resourceType==='iron'?'⛏️':'🪨';
+      nm = card.resourceType==='iron'?'铁矿':'铜矿';
+      desc = '1矿/秒';
+      div.innerHTML = `<span class="cdur">●${card.durability}</span>`;
+    } else {
+      const cfg = BLDG_CFGS[card.buildingType];
+      ico=cfg.emoji; nm=cfg.name; desc=cfg.desc;
+    }
+    div.innerHTML += `
+      <div class="cicon">${ico}</div>
+      <div class="cname">${nm}</div>
+      <div class="cdesc">${desc}</div>
+    `;
+    div.onclick = ()=>selectCard(card);
+    container.appendChild(div);
+  }
+
+  // 传送带按钮
+  const bb = document.getElementById('belt-btn');
+  bb.className = GS.beltMode ? 'active' : '';
+}
+
+function selectCard(card) {
+  if (GS.selectedCard?.id===card.id) {
+    GS.selectedCard = null;
+    document.getElementById('hint-bar').style.display='none';
+  } else {
+    GS.selectedCard = card;
+    GS.beltMode = false;
+    GS.selectedDir = 0;
+    document.getElementById('hint-bar').style.display='block';
+  }
+  updateCardUI();
+}
+
+function toggleBeltMode() {
+  GS.beltMode = !GS.beltMode;
+  GS.selectedCard = null;
+  GS.selectedDir = 0;
+  document.getElementById('hint-bar').style.display = GS.beltMode ? 'block' : 'none';
+  updateCardUI();
+}
+
+function setSpeed(spd) {
+  if (spd===0) {
+    GS.paused = !GS.paused;
+    document.getElementById('btn-pause').textContent = GS.paused ? '▶继续' : '⏸暂停';
+    document.getElementById('btn-pause').classList.toggle('active', GS.paused);
+    return;
+  }
+  GS.paused = false;
+  GS.timeSpeed = spd;
+  document.getElementById('btn-pause').textContent = '⏸暂停';
+  document.getElementById('btn-pause').classList.remove('active');
+  ['btn-1x','btn-2x','btn-4x'].forEach(id=>document.getElementById(id).classList.remove('active'));
+  const map={1:'btn-1x',2:'btn-2x',4:'btn-4x'};
+  if (map[spd]) document.getElementById(map[spd]).classList.add('active');
+}
+
+// ================================================================
+//  Phaser 场景
+// ================================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super({key:'GameScene'}); }
+
+  create() {
+    SCENE = this;
+
+    // 图层（按Z序）
+    this.gfxGrid    = this.add.graphics().setDepth(0);  // 网格和路径（静态）
+    this.gfxBuilding= this.add.graphics().setDepth(1);  // 建筑底色
+    this.gfxEffect  = this.add.graphics().setDepth(5);  // 特效
+    this.gfxEnemy   = this.add.graphics().setDepth(6);  // 敌人底圆
+    this.gfxBullet  = this.add.graphics().setDepth(7);  // 子弹
+    this.gfxHover   = this.add.graphics().setDepth(8);  // 悬停高亮
+
+    // 文字容器（高Z层）
+    this.bldgTexts  = {}; // id -> {objs}
+    this.enemyTexts = {}; // id -> {objs}
+
+    // 动画对象列表
+    this.bullets  = [];   // {sx,sy,ex,ey,t,speed}
+    this.effects  = [];   // {type,x,y,t,dur,...}
+
+    // 绘制初始静态内容
+    this.drawGrid();
+    this.drawPath();
+
+    // 放置核心
+    const coreB = placeBuilding(CORE_X, CORE_Y, 'core', 0, null);
+    if (coreB) this.addBuildingVisual(coreB);
+
+    // 输入事件
+    this.input.mouse.disableContextMenu();
+    this.input.on('pointerdown', this.onPtrDown, this);
+    this.input.on('pointermove', this.onPtrMove, this);
+    this.input.keyboard.on('keydown-R', ()=>{
+      if (GS.selectedCard||GS.beltMode) {
+        GS.selectedDir=(GS.selectedDir+1)%4;
+        // 立即刷新传送带方向提示文字
+        if (GS.beltMode) {
+          const DIR_NAMES=['向右','向下','向左','向上'];
+          document.getElementById('hint-bar').textContent =
+            `传送带 [${DIR_NAMES[GS.selectedDir]}]  R键旋转 | 右键退出`;
+        }
+        // 强制触发一次 onPtrMove 刷新画面预览（用最后记录的鼠标位置）
+        if (this._lastPtr) this.onPtrMove(this._lastPtr);
+      }
+    });
+
+    // 初始UI（手牌为空，等玩家选完卡组才填）
+    updateTopBar();
+    updateResourceUI();
+    updateCardUI();
+
+    // 弹出起始卡组选择弹窗
+    // 用 setTimeout 确保 Phaser 画面已渲染完再弹
+    setTimeout(()=>showStarterDeckDialog(), 200);
+  }
+
+  drawGrid() {
+    const g = this.gfxGrid;
+    g.clear();
+    // 背景
+    g.fillStyle(0x263238,1);
+    g.fillRect(0,0,CW,CH);
+    // 路径格子背景
+    const pathCells = getPathCells();
+    const pathSet = new Set(pathCells.map(c=>`${c.x},${c.y}`));
+    for (let y=0; y<GH; y++) {
+      for (let x=0; x<GW; x++) {
+        if (pathSet.has(`${x},${y}`)) {
+          g.fillStyle(0x3D2B1F,1);
+          g.fillRect(x*CELL+1,y*CELL+1,CELL-2,CELL-2);
+        }
+      }
+    }
+    // 网格线
+    g.lineStyle(1,0x37474F,1);
+    for (let x=0;x<=GW;x++) g.lineBetween(x*CELL,0,x*CELL,CH);
+    for (let y=0;y<=GH;y++) g.lineBetween(0,y*CELL,CW,y*CELL);
+  }
+
+  drawPath() {
+    // 路径线和箭头（画在gfxGrid上，叠在网格之上）
+    const g = this.gfxGrid;
+    for (let i=0;i<ENEMY_PATH.length-1;i++) {
+      const s=ENEMY_PATH[i], e=ENEMY_PATH[i+1];
+      const sx=s.x*CELL+CELL/2, sy=s.y*CELL+CELL/2;
+      const ex=e.x*CELL+CELL/2, ey=e.y*CELL+CELL/2;
+      // 虚线效果（分段）
+      const steps=6;
+      for (let k=0;k<steps;k++) {
+        if (k%2===0) {
+          const t1=k/steps, t2=(k+0.7)/steps;
+          g.lineStyle(3,0xE74C3C,0.7);
+          g.lineBetween(sx+(ex-sx)*t1,sy+(ey-sy)*t1,sx+(ex-sx)*t2,sy+(ey-sy)*t2);
+        }
+      }
+      // 箭头
+      const mx=(sx+ex)/2+((ex-sx)*0.1), my=(sy+ey)/2+((ey-sy)*0.1);
+      const ang=Math.atan2(ey-sy,ex-sx);
+      const aLen=9;
+      g.fillStyle(0xE74C3C,0.9);
+      g.fillTriangle(
+        mx+Math.cos(ang)*aLen, my+Math.sin(ang)*aLen,
+        mx+Math.cos(ang+2.4)*6, my+Math.sin(ang+2.4)*6,
+        mx+Math.cos(ang-2.4)*6, my+Math.sin(ang-2.4)*6
+      );
+    }
+    // 起点标志
+    const sp=ENEMY_PATH[0];
+    g.fillStyle(0x27AE60,0.9);
+    g.fillCircle(sp.x*CELL+CELL/2,sp.y*CELL+CELL/2,8);
+    g.lineStyle(2,0xFFFFFF,0.7);
+    g.strokeCircle(sp.x*CELL+CELL/2,sp.y*CELL+CELL/2,8);
+  }
+
+  /** 添加建筑视觉（图形+文字） */
+  addBuildingVisual(b) {
+    const cfg = BLDG_CFGS[b.type];
+    if (!cfg) return;
+    const g = this.gfxBuilding;
+    const px=b.x*CELL, py=b.y*CELL;
+    const cx=px+CELL/2, cy=py+CELL/2;
+
+    // 底色方块
+    g.fillStyle(cfg.color,0.9);
+    g.fillRect(px+3,py+3,CELL-6,CELL-6);
+    // 边框
+    if (b.type==='core') {
+      g.lineStyle(3,0xFFD700,1);
+      g.strokeRect(px+3,py+3,CELL-6,CELL-6);
+    } else if (b.type==='gun_tower') {
+      g.lineStyle(2,0xFF8080,1);
+      g.strokeRect(px+3,py+3,CELL-6,CELL-6);
+    } else {
+      g.lineStyle(1,0x566573,0.8);
+      g.strokeRect(px+3,py+3,CELL-6,CELL-6);
+    }
+
+    const objs = {graphics:g};
+
+    // 图标
+    const DIR_ARROWS=['→','↓','←','↑'];
+    const iconTxt = b.type==='conveyor' ? DIR_ARROWS[b.dir]||'→' : cfg.emoji;
+    const icon = this.add.text(cx, b.type==='core'?cy:cy-4, iconTxt, {
+      fontSize:'18px', align:'center'
+    }).setOrigin(0.5).setDepth(3);
+    objs.icon = icon;
+
+    // 弹药箱：额外文字
+    if (b.type==='ammo_box') {
+      const ammoTxt = this.add.text(cx,cy+12,`${b.ammo}/50`,{
+        fontSize:'8px', color:'#FFD700', align:'center'
+      }).setOrigin(0.5).setDepth(3);
+      objs.ammoTxt = ammoTxt;
+    }
+
+    // 无弹药警告
+    if (b.type==='gun_tower') {
+      const warn = this.add.text(cx,py+4,'❌',{fontSize:'10px'}).setOrigin(0.5).setDepth(4).setVisible(false);
+      objs.warn = warn;
+    }
+
+    // 血条（除传送带和核心）
+    if (b.type!=='conveyor' && b.type!=='core' && b.type!=='iron_ore_node' && b.type!=='copper_ore_node') {
+      const hpbg = this.add.graphics().setDepth(3);
+      const hpbar = this.add.graphics().setDepth(3);
+      hpbg.fillStyle(0x222222,1);
+      hpbg.fillRect(px+4,py+CELL-9,CELL-8,5);
+      hpbar.fillStyle(0x27AE60,1);
+      hpbar.fillRect(px+4,py+CELL-9,CELL-8,5);
+      objs.hpBg=hpbg; objs.hpBar=hpbar;
+    }
+
+    this.bldgTexts[b.id]=objs;
+  }
+
+  /** 更新建筑视觉（血条、弹药数等） */
+  refreshBuildingVisual(b) {
+    const objs=this.bldgTexts[b.id];
+    if (!objs) return;
+    // 血条
+    if (objs.hpBar) {
+      const px=b.x*CELL, py=b.y*CELL;
+      const ratio=b.health/b.maxHealth;
+      objs.hpBar.clear();
+      const col=ratio>0.5?0x27AE60:ratio>0.25?0xF39C12:0xE74C3C;
+      objs.hpBar.fillStyle(col,1);
+      objs.hpBar.fillRect(px+4,py+CELL-9,Math.floor((CELL-8)*ratio),5);
+    }
+    // 弹药箱文字
+    if (objs.ammoTxt) {
+      objs.ammoTxt.setText(`${b.ammo}/50`);
+    }
+    // 无弹药警告
+    if (objs.warn && b.type==='gun_tower') {
+      objs.warn.setVisible(!!b._noAmmo);
+    }
+  }
+
+  /** 移除建筑视觉 */
+  removeBuildingVisual(b) {
+    const objs=this.bldgTexts[b.id];
+    if (!objs) return;
+    // 清除图形
+    const px=b.x*CELL, py=b.y*CELL;
+    // 用覆盖方块擦除
+    this.gfxBuilding.fillStyle(0x263238,1);
+    this.gfxBuilding.fillRect(px+1,py+1,CELL-2,CELL-2);
+    // 路径格子颜色补回
+    const pathSet=new Set(getPathCells().map(c=>`${c.x},${c.y}`));
+    if (pathSet.has(`${b.x},${b.y}`)) {
+      this.gfxBuilding.fillStyle(0x3D2B1F,1);
+      this.gfxBuilding.fillRect(px+1,py+1,CELL-2,CELL-2);
+    }
+    this.gfxBuilding.lineStyle(1,0x37474F,1);
+    this.gfxBuilding.strokeRect(px,py,CELL,CELL);
+    // 销毁文字对象
+    ['icon','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(objs[k]) objs[k].destroy(); });
+    delete this.bldgTexts[b.id];
+    // 重绘路径（建筑覆盖了路径）
+    this.drawPath();
+  }
+
+  /** 指针按下 */
+  onPtrDown(ptr) {
+    const gx=Math.floor(ptr.x/CELL), gy=Math.floor(ptr.y/CELL);
+
+    // 右键：取消选择 或 移除建筑
+    if (ptr.rightButtonDown()) {
+      if (GS.selectedCard||GS.beltMode) {
+        GS.selectedCard=null; GS.beltMode=false;
+        document.getElementById('hint-bar').style.display='none';
+        updateCardUI();
+      } else if (inGrid(gx,gy)) {
+        removeBuilding(gx,gy);
+      }
+      return;
+    }
+
+    if (!inGrid(gx,gy)) return;
+
+    // 传送带模式
+    if (GS.beltMode) {
+      if (getCell(gx,gy)===null && !(gx===CORE_X&&gy===CORE_Y)) {
+        const b=placeBuilding(gx,gy,'conveyor',GS.selectedDir,null);
+        if (b) this.addBuildingVisual(b);
+      }
+      return;
+    }
+
+    // 放置卡牌建筑
+    if (GS.selectedCard) {
+      const card=GS.selectedCard;
+      if (getCell(gx,gy)!==null) return;
+      if (gx===CORE_X&&gy===CORE_Y) return;
+
+      let btype=null;
+      if (card.type==='resource') btype=card.resourceType==='iron'?'iron_ore_node':'copper_ore_node';
+      else btype=card.buildingType;
+
+      const b=placeBuilding(gx,gy,btype,GS.selectedDir,card);
+      if (b) {
+        this.addBuildingVisual(b);
+        GS.hand=GS.hand.filter(c=>c.id!==card.id);
+        GS.selectedCard=null;
+        document.getElementById('hint-bar').style.display='none';
+        updateCardUI();
+      }
+    }
+  }
+
+  /** 指针移动：悬停高亮 + 传送带/建筑预览 */
+  onPtrMove(ptr) {
+    this._lastPtr = ptr; // 记录最后鼠标位置，供 R 键旋转刷新用
+    const gx=Math.floor(ptr.x/CELL), gy=Math.floor(ptr.y/CELL);
+    const g=this.gfxHover;
+    g.clear();
+    // 清理上一帧的悬停预览文字
+    if (this._hoverPreviewText) { this._hoverPreviewText.destroy(); this._hoverPreviewText=null; }
+
+    if (!inGrid(gx,gy)) return;
+
+    if (GS.selectedCard || GS.beltMode) {
+      const canPlace = getCell(gx,gy)===null && !(gx===CORE_X&&gy===CORE_Y);
+      const cx=gx*CELL+CELL/2, cy=gy*CELL+CELL/2;
+
+      // 悬停格边框（绿=可放，红=不可放）
+      g.lineStyle(2, canPlace?0xF39C12:0xE74C3C, 0.9);
+      g.strokeRect(gx*CELL+2,gy*CELL+2,CELL-4,CELL-4);
+
+      if (canPlace) {
+        if (GS.beltMode) {
+          // ── 传送带预览：半透明底色 + 方向箭头 ──
+          g.fillStyle(0x4A5568, 0.55);
+          g.fillRect(gx*CELL+3,gy*CELL+3,CELL-6,CELL-6);
+          const DIR_ARROWS=['→','↓','←','↑'];
+          const arrow = DIR_ARROWS[GS.selectedDir] || '→';
+          this._hoverPreviewText = this.add.text(cx, cy, arrow, {
+            fontSize:'22px', color:'#ECF0F1', alpha:0.85
+          }).setOrigin(0.5).setDepth(20);
+          // 提示文字：当前方向名
+          const DIR_NAMES=['向右','向下','向左','向上'];
+          document.getElementById('hint-bar').textContent =
+            `传送带 [${DIR_NAMES[GS.selectedDir]}]  R键旋转 | 右键退出`;
+        } else {
+          // ── 普通建筑预览：半透明底色 + 图标 ──
+          const card=GS.selectedCard;
+          let btype = card.type==='resource'
+            ? (card.resourceType==='iron'?'iron_ore_node':'copper_ore_node')
+            : card.buildingType;
+          const cfg = BLDG_CFGS[btype];
+          if (cfg) {
+            g.fillStyle(cfg.color, 0.45);
+            g.fillRect(gx*CELL+3,gy*CELL+3,CELL-6,CELL-6);
+            // 如果建筑有方向（如传送带），在预览里也显示带方向的图标
+            const needsDir = (btype==='furnace'||btype==='assembler');
+            this._hoverPreviewText = this.add.text(cx, cy, cfg.emoji, {
+              fontSize:'20px', alpha:0.85
+            }).setOrigin(0.5).setDepth(20);
+          }
+          // 机枪塔射程预览圈
+          if (card.buildingType==='gun_tower') {
+            g.lineStyle(1,0xFF8080,0.3);
+            g.strokeCircle(cx,cy,3*CELL);
+          }
+        }
+      }
+    }
+
+    // 悬停在已放置的机枪塔上：显示射程
+    const b=getCell(gx,gy);
+    if (b&&b.type==='gun_tower'&&!GS.selectedCard&&!GS.beltMode) {
+      g.lineStyle(1,0xFF8080,0.5);
+      g.strokeCircle(gx*CELL+CELL/2,gy*CELL+CELL/2,3*CELL);
+    }
+  }
+
+  /** 添加子弹动画（传入格坐标，自动转像素中心） */
+  spawnBullet(sx,sy,ex,ey) {
+    // 起点是炮塔格坐标（整数），终点是敌人gx/gy（小数）
+    const psx = sx*CELL+CELL/2, psy = sy*CELL+CELL/2;
+    const pex = ex*CELL+CELL/2, pey = ey*CELL+CELL/2;
+    const dist = Math.hypot(pex-psx, pey-psy) || 1;
+    this.bullets.push({
+      sx:psx, sy:psy, ex:pex, ey:pey,
+      t:0,
+      speed: (5*CELL) / dist // 每帧进度增量（5格/秒等效速度）
+    });
+  }
+
+  /** 添加爆炸特效 */
+  spawnExplosion(px,py) {
+    this.effects.push({type:'explosion',x:px,y:py,t:0,dur:0.5,r:CELL*0.9});
+  }
+
+  /** 添加受伤闪烁特效（红色边框） */
+  spawnDamageRect(px,py) {
+    this.effects.push({type:'damage',x:px,y:py,t:0,dur:0.25});
+  }
+
+  /** 清理所有Phaser对象（重置关卡用） */
+  clearAll() {
+    // 销毁所有建筑文字
+    for (const id in this.bldgTexts) {
+      const o=this.bldgTexts[id];
+      ['icon','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(o[k]) o[k].destroy(); });
+    }
+    this.bldgTexts={};
+    // 销毁所有敌人文字
+    for (const id in this.enemyTexts) {
+      const o=this.enemyTexts[id];
+      ['icon','hpBg','hpBar'].forEach(k=>{ if(o[k]) o[k].destroy(); });
+    }
+    this.enemyTexts={};
+    // 清理悬停预览
+    if (this._hoverPreviewText) { this._hoverPreviewText.destroy(); this._hoverPreviewText=null; }
+    // 清空图形
+    this.gfxBuilding.clear();
+    this.gfxEnemy.clear();
+    this.gfxBullet.clear();
+    this.gfxEffect.clear();
+    this.gfxHover.clear();
+    this.bullets=[];
+    this.effects=[];
+  }
+
+  /** 每帧主更新 */
+  update(time, delta) {
+    if (GS.paused || GS.gameOver) return;
+    const dt=(delta/1000)*GS.timeSpeed;
+
+    if (GS.phase==='defense') {
+      updateWave(dt);
+      updateProduction(dt);
+      updateEnemies(dt);
+      updateDefense(dt);
+    }
+
+    // 更新子弹动画
+    for (const blt of this.bullets) blt.t+=blt.speed*(delta/1000)*GS.timeSpeed;
+    this.bullets=this.bullets.filter(b=>b.t<1.0);
+
+    // 更新特效
+    for (const ef of this.effects) ef.t+=(delta/1000)*GS.timeSpeed;
+    this.effects=this.effects.filter(ef=>ef.t<ef.dur);
+
+    // 渲染动态内容
+    this.renderEnemies();
+    this.renderBullets();
+    this.renderEffects();
+
+    // 刷新建筑状态（血条、弹药等）
+    for (const b of GS.buildings) this.refreshBuildingVisual(b);
+
+    // UI更新（节流：每10帧更新一次资源显示）
+    if (Math.floor(time/100)%2===0) updateResourceUI();
+    updateCoreHP();
+  }
+
+  renderEnemies() {
+    const g=this.gfxEnemy;
+    g.clear();
+
+    // 清理已死亡的敌人文字
+    const aliveIds=new Set(GS.enemies.map(e=>e.id));
+    for (const sid in this.enemyTexts) {
+      if (!aliveIds.has(parseInt(sid))) {
+        const o=this.enemyTexts[sid];
+        ['icon','hpBg','hpBar'].forEach(k=>{ if(o[k]) o[k].destroy(); });
+        delete this.enemyTexts[sid];
+      }
+    }
+
+    for (const e of GS.enemies) {
+      const cfg=ENEMY_CFGS[e.type];
+      // gx/gy是格坐标（小数），转换为像素坐标时加CELL/2偏移到格中心
+      const cx = e.gx * CELL + CELL/2;
+      const cy = e.gy * CELL + CELL/2;
+      const r = cfg.radius;
+
+      // 受伤闪红效果
+      const flashColor = e._flashTimer>0 ? 0xFF4444 : cfg.color;
+      g.fillStyle(flashColor, 1);
+      g.fillCircle(cx, cy, r);
+      g.lineStyle(2, e._flashTimer>0 ? 0xFF8888 : 0xFFFFFF, 0.6);
+      g.strokeCircle(cx, cy, r);
+
+      const bw = r*2;
+
+      // 创建或更新敌人文字对象
+      if (!this.enemyTexts[e.id]) {
+        const icon = this.add.text(cx, cy, cfg.emoji, {
+          fontSize: e.type==='tank_bug'?'18px':'14px'
+        }).setOrigin(0.5).setDepth(10);
+        const hpBg = this.add.graphics().setDepth(9);
+        const hpBar = this.add.graphics().setDepth(9);
+        this.enemyTexts[e.id] = {icon, hpBg, hpBar};
+      }
+      const obj = this.enemyTexts[e.id];
+      obj.icon.setPosition(cx, cy);
+
+      // 更新血条
+      const hpRatio = Math.max(0, e.health / e.maxHealth);
+      const hpX = cx - r, hpY = cy - r - 9;
+      obj.hpBg.clear();
+      obj.hpBg.fillStyle(0x333333, 1);
+      obj.hpBg.fillRect(hpX, hpY, bw, 4);
+      obj.hpBar.clear();
+      const hpCol = hpRatio>0.5 ? 0x27AE60 : hpRatio>0.25 ? 0xF39C12 : 0xE74C3C;
+      obj.hpBar.fillStyle(hpCol, 1);
+      obj.hpBar.fillRect(hpX, hpY, Math.floor(bw*hpRatio), 4);
+    }
+  }
+
+  renderBullets() {
+    const g=this.gfxBullet;
+    g.clear();
+    for (const blt of this.bullets) {
+      const t=Math.min(blt.t,1);
+      const x=blt.sx+(blt.ex-blt.sx)*t;
+      const y=blt.sy+(blt.ey-blt.sy)*t;
+      g.fillStyle(0xFFD700,1);
+      g.fillCircle(x,y,4);
+      // 拖尾
+      if (t>0.08) {
+        const t2=Math.max(0,t-0.12);
+        const x2=blt.sx+(blt.ex-blt.sx)*t2;
+        const y2=blt.sy+(blt.ey-blt.sy)*t2;
+        g.lineStyle(2,0xFFE066,0.5);
+        g.lineBetween(x,y,x2,y2);
+      }
+    }
+  }
+
+  renderEffects() {
+    const g=this.gfxEffect;
+    g.clear();
+    for (const ef of this.effects) {
+      if (ef.type==='explosion') {
+        const p=ef.t/ef.dur;
+        const alpha=1-p;
+        const r=ef.r*p;
+        g.fillStyle(0xFF6B00,alpha*0.8);
+        g.fillCircle(ef.x,ef.y,r);
+        g.fillStyle(0xFFFF00,alpha*0.5);
+        g.fillCircle(ef.x,ef.y,r*0.5);
+        // 粒子碎片
+        for(let i=0;i<6;i++){
+          const ang=(i/6)*Math.PI*2+p*3;
+          const pr=r*0.8;
+          g.fillStyle(0xFF8C00,alpha*0.7);
+          g.fillCircle(ef.x+Math.cos(ang)*pr,ef.y+Math.sin(ang)*pr,3*(1-p));
+        }
+      } else if (ef.type==='damage') {
+        const alpha=(1-ef.t/ef.dur)*0.9;
+        const r=CELL/2-4;
+        g.lineStyle(3,0xFF0000,alpha);
+        g.strokeRect(ef.x-r,ef.y-r,r*2,r*2);
+      }
+    }
+  }
+}
+
+// ================================================================
+//  Phaser 游戏实例
+// ================================================================
+GS = createGS(1);
+// 手牌不在此处初始化，由起始选卡弹窗 pickStarterDeck() 设置
+
+const phaserGame = new Phaser.Game({
+  type: Phaser.AUTO,
+  width: CW,
+  height: CH,
+  parent: 'game-area',
+  backgroundColor: '#263238',
+  scene: [GameScene],
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: CW,
+    height: CH,
+  }
+});
+</script>
+</body>
+</html>
