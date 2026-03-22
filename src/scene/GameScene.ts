@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CORE_X, CORE_Y } from '../config/GameConfig';
 import { LEVEL_CONFIGS, STARTER_DECKS } from '../config/LevelConfig';
+import { CARD_DEF_MAP } from '../config/CardConfig';
 import { GameState } from '../model/GameState';
 import { makeCard, resetCardId } from '../model/Card';
 import type { CardData } from '../model/Card';
@@ -92,7 +93,17 @@ export class GameScene extends Phaser.Scene {
 
   private onDeckPicked(idx: number): void {
     const deck = STARTER_DECKS[idx];
-    this.gs.hand = deck.cards.map(c => makeCard(c));
+    // cardIds → CardData[]（通过 CardConfig 查表，保留耐久度等字段）
+    this.gs.hand = deck.cardIds.map(id => {
+      const def = CARD_DEF_MAP.get(id);
+      if (!def) throw new Error(`未知 cardId: ${id}`);
+      return makeCard({
+        type:         def.type,
+        resourceType: def.resourceType,
+        durability:   def.durability,
+        buildingType: def.buildingType,
+      });
+    });
     this.cardMgr.render(this.gs);
     this.hud.updateTopBar(this.gs);
   }

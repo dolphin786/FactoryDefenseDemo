@@ -1,4 +1,5 @@
 import { CORE_X, CORE_Y } from '../config/GameConfig';
+import { TOWER_STATS } from '../config/BalanceConfig';
 import type { Building } from '../model/Building';
 import type { Enemy } from '../model/Enemy';
 import type { GameState } from '../model/GameState';
@@ -9,15 +10,12 @@ export type OnBulletFired = (fromX: number, fromY: number, toX: number, toY: num
 /**
  * DefenseSystem — 机枪塔自动攻击
  *
- * 职责：
- *   - 查找相邻弹药箱
- *   - 在射程内寻找优先目标（最接近核心的敌人）
- *   - 消耗弹药，立即结算伤害，触发子弹动画回调
+ * 所有战斗参数从 BalanceConfig.TOWER_STATS 读取，此处不含魔法数字。
  */
 export class DefenseSystem {
-  private readonly range = 3;        // 射程（格）
-  private readonly damagePerShot = 10;
-  private readonly fireRate = 1.0;   // 秒/发
+  private readonly range         = TOWER_STATS.range;
+  private readonly damagePerShot = TOWER_STATS.damagePerShot;
+  private readonly fireRate      = TOWER_STATS.fireRate;
 
   private onBulletFired: OnBulletFired;
 

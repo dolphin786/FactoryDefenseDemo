@@ -1,5 +1,5 @@
 import { ENEMY_PATH } from '../config/GameConfig';
-import { ENEMY_CONFIGS } from '../config/EnemyConfig';
+import { resolveEnemyCfg } from '../config/EnemyConfig';
 import type { EnemyType } from '../config/EnemyConfig';
 import { Enemy } from '../model/Enemy';
 import type { Building } from '../model/Building';
@@ -21,7 +21,7 @@ export class EnemySystem {
   }
 
   spawnEnemy(gs: GameState, type: EnemyType): Enemy {
-    const cfg = ENEMY_CONFIGS[type];
+    const cfg = resolveEnemyCfg(type);  // 已乘全局倍率
     const start = ENEMY_PATH[0];
     const e = new Enemy(
       gs.nextEnemyId(), type,

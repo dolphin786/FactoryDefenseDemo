@@ -1,5 +1,7 @@
 import { BUILDING_CONFIGS } from '../config/BuildingConfig';
-import { STARTER_DECKS, REWARD_POOL } from '../config/LevelConfig';
+import { STARTER_DECKS, LEVEL_CONFIGS } from '../config/LevelConfig';
+import { CARD_DEF_MAP } from '../config/CardConfig';
+import type { RewardEntry } from '../config/LevelConfig';
 import { makeCard } from '../model/Card';
 import type { CardData } from '../model/Card';
 import type { GameState } from '../model/GameState';
@@ -18,11 +20,11 @@ export class DialogManager {
       <p style="font-size:11px;color:#7F8C8D">各套额外附赠不同侧重的卡牌</p>`;
 
     const decksHtml = STARTER_DECKS.map((deck, idx) => {
+      // 从 cardIds 统计卡牌构成摘要
       const typeCount: Record<string, number> = {};
-      for (const c of deck.cards) {
-        const key = c.type === 'resource'
-          ? (c.resourceType === 'iron' ? '铁矿' : '铜矿')
-          : (BUILDING_CONFIGS[c.buildingType!]?.name ?? c.buildingType ?? '');
+      for (const cardId of deck.cardIds) {
+        const def = CARD_DEF_MAP.get(cardId);
+        const key = def?.name ?? cardId;
         typeCount[key] = (typeCount[key] ?? 0) + 1;
       }
       const summary = Object.entries(typeCount).map(([k, v]) => `${k}×${v}`).join(' · ');
@@ -44,7 +46,7 @@ export class DialogManager {
   }
 
   showVictoryDialog(gs: GameState, onNext: OnNextLevel, onRestart: OnRestart): void {
-    if (gs.level >= 3) {
+    if (gs.level >= LEVEL_CONFIGS.length) {
       this.open('🎉 全关通关！', '#F39C12',
         `<p>成功抵御所有波次！</p><p>核心剩余: <strong>${gs.coreHealth}/${gs.coreMaxHealth}</strong></p>
          <p style="color:#F39C12;font-size:18px;margin-top:12px">🏆 你是工厂守卫大师！</p>`,
@@ -53,7 +55,9 @@ export class DialogManager {
       return;
     }
 
-    const choices = this.pickRewardChoices(3);
+    // 从当前关的 rewardPool 按权重随机抽3张
+    const levelCfg = LEVEL_CONFIGS[gs.level - 1];
+    const choices = this.pickWeightedRewards(levelCfg.rewardPool, 3);
     const choiceHtml = choices.map((c, i) => {
       const ico = c.type === 'resource'
         ? (c.resourceType === 'iron' ? '⛏️' : '🪨')
@@ -101,12 +105,27 @@ export class DialogManager {
     el.classList.add('show');
   }
 
-  private pickRewardChoices(n: number): Omit<CardData, 'id'>[] {
-    const pool = [...REWARD_POOL];
+  /**
+   * 按权重从奖励池随机抽 n 张不重复的卡
+   * 算法：加权随机抽样（不放回）
+   */
+  private pickWeightedRewards(pool: RewardEntry[], n: number): Omit<CardData, 'id'>[] {
+    const available = [...pool];
     const result: Omit<CardData, 'id'>[] = [];
-    while (result.length < n && pool.length > 0) {
-      const idx = Math.floor(Math.random() * pool.length);
-      result.push(pool.splice(idx, 1)[0]);
+
+    while (result.length < n && available.length > 0) {
+      const totalWeight = available.reduce((s, e) => s + e.weight, 0);
+      let roll = Math.random() * totalWeight;
+      const idx = available.findIndex(e => { roll -= e.weight; return roll <= 0; });
+      const picked = available.splice(idx < 0 ? 0 : idx, 1)[0];
+      const def = CARD_DEF_MAP.get(picked.cardId);
+      if (!def) continue;
+      result.push({
+        type:         def.type,
+        resourceType: def.resourceType,
+        durability:   def.durability,
+        buildingType: def.buildingType,
+      });
     }
     return result;
   }

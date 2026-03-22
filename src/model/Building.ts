@@ -1,4 +1,5 @@
 import type { BuildingType, ResourceType } from '../config/BuildingConfig';
+import { AMMO_BOX_CAPACITY } from '../config/BalanceConfig';
 import type { CardData } from './Card';
 
 /** 传送带槽位 */
@@ -38,7 +39,7 @@ export class Building {
 
   // 弹药箱
   ammo = 0;
-  readonly ammoMax = 50;
+  readonly ammoMax = AMMO_BOX_CAPACITY;
 
   constructor(
     id: number,
