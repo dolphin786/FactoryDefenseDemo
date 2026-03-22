@@ -558,20 +558,40 @@ function updateProduction(dt) {
         break;
 
       // --- 熔炉：2秒加工一次，铁矿→铁板 或 铜矿→铜板 ---
+      // 每台熔炉记住自己上次加工的类型，下次优先处理另一种，
+      // 实现两种矿石的均衡消耗，避免所有熔炉抢同一种矿。
       case 'furnace':
         b.prodTimer += dt;
         if (b.prodTimer >= 2) {
-          // 优先加工铁矿
-          if (GS.res.iron_ore > 0) {
+          // 根据上次输出类型决定本次优先处理哪种矿
+          // b._lastOutput: undefined / 'iron' / 'copper'
+          const wantCopper = (b._lastOutput === 'iron') && GS.res.copper_ore > 0;
+          const wantIron   = (b._lastOutput === 'copper' || !b._lastOutput) && GS.res.iron_ore > 0;
+
+          if (wantIron) {
             GS.res.iron_ore--;
             GS.res.iron_plate++;
+            b._lastOutput = 'iron';
             b.prodTimer = 0;
-          } else if (GS.res.copper_ore > 0) {
+          } else if (wantCopper) {
             GS.res.copper_ore--;
             GS.res.copper_plate++;
+            b._lastOutput = 'copper';
+            b.prodTimer = 0;
+          } else if (GS.res.iron_ore > 0) {
+            // 备选：铜矿没有就处理铁矿
+            GS.res.iron_ore--;
+            GS.res.iron_plate++;
+            b._lastOutput = 'iron';
+            b.prodTimer = 0;
+          } else if (GS.res.copper_ore > 0) {
+            // 备选：铁矿没有就处理铜矿
+            GS.res.copper_ore--;
+            GS.res.copper_plate++;
+            b._lastOutput = 'copper';
             b.prodTimer = 0;
           } else {
-            b.prodTimer = 1.99; // 无原料，下一帧继续等待
+            b.prodTimer = 1.99; // 无原料，下帧继续等待
           }
         }
         break;
@@ -723,6 +743,55 @@ function updateEnemies(dt) {
   GS.enemies = GS.enemies.filter(e => e.state!=='dead');
 }
 
+/**
+ * 获取从路径点 fromIdx 到 toIdx 之间经过的所有格子（不含起点，含终点）
+ * 路径是水平或垂直线段，逐格枚举。
+ */
+function getSegmentCells(fromIdx, toIdx) {
+  const s = ENEMY_PATH[fromIdx], e = ENEMY_PATH[toIdx];
+  const cells = [];
+  if (s.x === e.x) {
+    const step = e.y > s.y ? 1 : -1;
+    for (let y = s.y + step; y !== e.y + step; y += step) cells.push({x:s.x, y});
+  } else {
+    const step = e.x > s.x ? 1 : -1;
+    for (let x = s.x + step; x !== e.x + step; x += step) cells.push({x, y:s.y});
+  }
+  return cells;
+}
+
+/**
+ * 查找敌人前进方向上最近的阻挡建筑。
+ * 检查当前段（currentPathIndex-1 → currentPathIndex）中，
+ * 位于敌人当前位置之前（尚未经过）的所有格子。
+ */
+function findBlockingBuilding(e) {
+  if (e.pathIndex >= ENEMY_PATH.length) return null;
+
+  const fromIdx = e.pathIndex - 1 >= 0 ? e.pathIndex - 1 : 0;
+  const toIdx   = e.pathIndex;
+  const segCells = getSegmentCells(fromIdx, toIdx);
+
+  const s  = ENEMY_PATH[fromIdx];
+  const tg = ENEMY_PATH[toIdx];
+
+  for (const c of segCells) {
+    // 只检查敌人还没走到的格子（在敌人前方）
+    const passedX = tg.x !== s.x
+      ? (tg.x > s.x ? c.x <= e.gx : c.x >= e.gx)
+      : false;
+    const passedY = tg.y !== s.y
+      ? (tg.y > s.y ? c.y <= e.gy : c.y >= e.gy)
+      : false;
+    const passed = passedX || passedY;
+    if (passed) continue; // 已经走过了
+
+    const b = getCell(c.x, c.y);
+    if (b && b.type !== 'core') return b; // 找到阻挡建筑
+  }
+  return null;
+}
+
 function moveEnemy(e, dt) {
   // 已到达所有路径点（应攻击核心）
   if (e.pathIndex >= ENEMY_PATH.length) {
@@ -731,27 +800,19 @@ function moveEnemy(e, dt) {
     return;
   }
 
-  // 目标路径点（整数格坐标）
+  // 检查前进路径上是否有建筑阻挡（覆盖路径上所有格子，不只是节点）
+  const blockB = findBlockingBuilding(e);
+  if (blockB) {
+    e.state = 'attacking';
+    e.target = blockB;
+    return;
+  }
+
+  // 目标路径点
   const targetPt = ENEMY_PATH[e.pathIndex];
   const tx = targetPt.x, ty = targetPt.y;
   const dx = tx - e.gx, dy = ty - e.gy;
   const dist = Math.sqrt(dx*dx + dy*dy);
-
-  // 检查目标格子是否有阻挡建筑
-  const blockB = getCell(tx, ty);
-  if (blockB && blockB.type !== 'core') {
-    // 目标格有建筑，先靠近到该格再攻击
-    if (dist < 0.9) {
-      e.state = 'attacking';
-      e.target = blockB;
-    } else {
-      // 继续向目标移动（稍微靠近建筑）
-      const move = e.speed * dt;
-      e.gx += (dx/dist)*move;
-      e.gy += (dy/dist)*move;
-    }
-    return;
-  }
 
   // 到达路径点
   if (dist < 0.08) {
