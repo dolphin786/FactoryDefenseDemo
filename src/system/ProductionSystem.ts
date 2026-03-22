@@ -112,51 +112,24 @@ export class ProductionSystem {
   }
 
   /**
-   * 输出产品：
-   *   'belt' → 推入输出方向传送带（失败返回 false，由调用方还原输入）
-   *   'ammo' → 存入相邻弹药箱
-   *   'both' → 先传送带，不通再弹药箱
+   * 将产品推入输出方向传送带。
+   * 堵塞时还原输入，返回 false 由调用方等待。
+   * 子弹以单个 BeltItem（qty=5）流动，到达弹药箱格由 ConveyorSystem 存入。
    */
-  private outputProducts(gs: GameState, b: Building, recipe: RecipeDef, variant: RecipeVariant): boolean {
+  private outputProducts(gs: GameState, b: Building, _recipe: RecipeDef, variant: RecipeVariant): boolean {
     for (const [resType, qty] of Object.entries(variant.outputs) as [string, number][]) {
-      if (recipe.outputMode === 'belt' || recipe.outputMode === 'both') {
-        const np = beltNextPos(b);
-        const tb = gs.getCell(np.x, np.y);
-        if (tb?.type === 'conveyor' && tb.item == null) {
-          tb.item = { type: resType as BeltItem['type'], progress: 0, qty };
-          logger.log('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
-          continue;
-        }
-        if (recipe.outputMode === 'belt') {
-          const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : '传送带已满';
-          logger.log('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞: ${reason}`);
-          return false;
-        }
-        logger.log('prod', `${b.type}(${b.x},${b.y}) 传送带满，尝试弹药箱`);
-      }
-
-      if ((recipe.outputMode === 'ammo' || recipe.outputMode === 'both') && resType === 'bullet') {
-        const stored = this.storeAmmoNearby(gs, b.x, b.y, qty);
-        logger.log('ammo', `✅ ${b.type}(${b.x},${b.y}) 产${qty}发子弹，存入${stored}发`);
+      const np = beltNextPos(b);
+      const tb = gs.getCell(np.x, np.y);
+      if (tb?.type === 'conveyor' && tb.item == null) {
+        tb.item = { type: resType as BeltItem['type'], progress: 0, qty };
+        logger.log('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
+      } else {
+        const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : '传送带已满';
+        logger.log('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞: ${reason}`);
+        return false;
       }
     }
     return true;
-  }
-
-  private storeAmmoNearby(gs: GameState, x: number, y: number, amount: number): number {
-    const dirs = [{ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 }];
-    let stored = 0;
-    for (const d of dirs) {
-      const nb = gs.getCell(d.x, d.y);
-      if (nb?.type === 'ammo_box') {
-        const space = nb.ammoMax - nb.ammo;
-        const add = Math.min(space, amount - stored);
-        nb.ammo += add;
-        stored += add;
-        if (stored >= amount) break;
-      }
-    }
-    return stored;
   }
 
   // ── 资源显示统计 ────────────────────────────────────────────────

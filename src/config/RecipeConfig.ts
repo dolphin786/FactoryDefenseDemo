@@ -6,31 +6,29 @@ export interface RecipeVariant {
   outputs: Partial<Record<ResourceType, number>>;
 }
 
-/** 输出模式 */
-export type OutputMode =
-  | 'belt'  // 产物推入输出方向传送带，堵塞则等待
-  | 'ammo'  // 产物直接写入相邻弹药箱（仅子弹）
-  | 'both'; // 先尝试传送带，不通再写弹药箱
-
-/** 建筑配方定义 */
+/**
+ * 建筑配方定义
+ *
+ * 所有产物统一走传送带。子弹等批量产品以单个 BeltItem（携带 qty）
+ * 在传送带上流动，到达弹药箱格时由 ConveyorSystem 自动存入。
+ */
 export interface RecipeDef {
   buildingType: BuildingType;
   variants:     RecipeVariant[];
-  outputMode:   OutputMode;
-  cycleTime:    number;            // 生产周期（秒）
-  accepts:      ResourceType[];    // 传送带可推入的原料类型
+  cycleTime:    number;          // 生产周期（秒）
+  accepts:      ResourceType[];  // 传送带可推入的原料类型
 }
 
 /** 所有配方列表 */
 export const RECIPES: RecipeDef[] = [
   {
     buildingType: 'furnace',
+    // 熔炉支持两种矿→板，每次交替选一种
     variants: [
       { inputs: { iron_ore: 1 },   outputs: { iron_plate: 1 } },
       { inputs: { copper_ore: 1 }, outputs: { copper_plate: 1 } },
     ],
-    outputMode: 'belt',
-    cycleTime:  2,
+    cycleTime: 2,
     accepts: ['iron_ore', 'copper_ore'],
   },
   {
@@ -38,8 +36,7 @@ export const RECIPES: RecipeDef[] = [
     variants: [
       { inputs: { iron_plate: 1, copper_plate: 1 }, outputs: { bullet: 5 } },
     ],
-    outputMode: 'both',  // 先传送带，再弹药箱
-    cycleTime:  1,
+    cycleTime: 1,
     accepts: ['iron_plate', 'copper_plate'],
   },
 ];

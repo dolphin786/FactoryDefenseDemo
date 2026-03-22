@@ -416,23 +416,21 @@ const BLDG_CFGS = {
 //  每条配方描述一台"加工建筑"的生产规则：
 //    buildingType : 使用该配方的建筑类型
 //    inputs       : 每次消耗的原料 { 资源类型: 数量 }
-//    outputs      : 每次产出的产品 { 资源类型: 数量 }
-//    outputMode   : 'belt'    → 产物推入输出方向传送带
-//                   'ammo'    → 产物直接写入相邻弹药箱
-//                   'both'    → 先尝试传送带，再尝试弹药箱（子弹两用）
+//    outputs      : 每次产出的产品 { 资源类型: 数量 }，推入输出方向传送带
 //    cycleTime    : 一次生产周期（秒）
 //    accepts      : 传送带可向该机器推入的资源类型（用于 machineAccepts）
+//
+//  所有产物统一走传送带（outputMode 已移除）。
+//  弹药箱作为普通的传送带终点：子弹 item 到达弹药箱格时自动存入。
 // ================================================================
 const RECIPES = [
   {
     buildingType: 'furnace',
-    // 熔炉同时支持两种矿→两种板，用 inputs/outputs 数组表示多个候选配方
-    // 每次只选一种（交替策略），因此拆成两条子配方
+    // 熔炉支持两种矿→板，每次交替选一种
     variants: [
       { inputs:{ iron_ore:1   }, outputs:{ iron_plate:1   } },
       { inputs:{ copper_ore:1 }, outputs:{ copper_plate:1 } },
     ],
-    outputMode: 'belt',
     cycleTime: 2,
     accepts: ['iron_ore', 'copper_ore'],
   },
@@ -441,7 +439,6 @@ const RECIPES = [
     variants: [
       { inputs:{ iron_plate:1, copper_plate:1 }, outputs:{ bullet:5 } },
     ],
-    outputMode: 'both',  // 先尝试传送带，传送带不通再存弹药箱
     cycleTime: 1,
     accepts: ['iron_plate', 'copper_plate'],
   },
@@ -950,45 +947,27 @@ function canExecute(variant, b) {
 }
 
 /**
- * 根据配方 outputMode 输出产品：
- *   'belt' → 推入输出方向传送带（堵塞时还原输入，等待）
- *   'ammo' → 直接存入相邻弹药箱
- *   'both' → 先尝试传送带，不通再存弹药箱
+ * 将产品推入输出方向传送带。
+ * 传送带堵塞时还原输入并等待，不丢弃产品。
+ * 子弹等批量产品以单个 item（携带 qty 字段）在传送带上传输，
+ * 到达弹药箱格时由 tryPushItem 自动存入。
  */
 function outputProducts(b, recipe, variant) {
   for (const [resType, qty] of Object.entries(variant.outputs)) {
-
-    if (recipe.outputMode === 'belt' || recipe.outputMode === 'both') {
-      const np = beltNextPos(b);
-      const tb = getCell(np.x, np.y);
-      if (tb && tb.type === 'conveyor' && tb.item == null) {
-        // 每次只能推1个 item 到传送带，qty>1 时分批（每产出周期推1个）
-        // 当前实现：子弹按1个item传，携带qty信息（简化：携带 qty 在 item.qty 字段）
-        tb.item = { type: resType, progress: 0, qty };
-        dlog('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
-        continue; // 成功输出，不走弹药箱
+    const np = beltNextPos(b);
+    const tb = getCell(np.x, np.y);
+    if (tb && tb.type === 'conveyor' && tb.item == null) {
+      tb.item = { type: resType, progress: 0, qty };
+      dlog('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
+    } else {
+      // 输出堵塞：还原本次消耗的输入，等待下帧重试
+      for (const [res, q] of Object.entries(variant.inputs)) {
+        b.inputBuf[res] = (b.inputBuf[res] || 0) + q;
       }
-      // 传送带堵塞
-      if (recipe.outputMode === 'belt') {
-        // 纯belt模式：还原输入，等待
-        for (const [res, q] of Object.entries(variant.inputs)) {
-          b.inputBuf[res] = (b.inputBuf[res] || 0) + q;
-        }
-        b.prodTimer = recipe.cycleTime - 0.01;
-        const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已满`;
-        dlog('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
-        return; // 整个产出取消
-      }
-      // both模式：传送带堵塞时 fallthrough 到弹药箱
-      dlog('prod', `${b.type}(${b.x},${b.y}) 传送带满，尝试弹药箱`);
-    }
-
-    if (recipe.outputMode === 'ammo' || recipe.outputMode === 'both') {
-      if (resType === 'bullet') {
-        const stored = storeAmmoNearby(b.x, b.y, qty);
-        dlog('ammo', `✅ ${b.type}(${b.x},${b.y}) 产${qty}发子弹，存入弹药箱${stored}发`);
-        if (stored < qty) dlog('warn', `弹药箱满，丢弃${qty-stored}发子弹`);
-      }
+      b.prodTimer = recipe.cycleTime - 0.01;
+      const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已满`;
+      dlog('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
+      return; // 本次产出整体取消
     }
   }
 }
@@ -1015,22 +994,7 @@ function rebuildResDisplay() {
   GS.res._display = counts;
 }
 
-/** 将子弹存入邻近弹药箱，返回实际存入量 */
-function storeAmmoNearby(x, y, amount) {
-  const dirs = [{x:x+1,y},{x:x-1,y},{x,y:y+1},{x,y:y-1}];
-  let stored = 0;
-  for (const d of dirs) {
-    const nb = getCell(d.x, d.y);
-    if (nb && nb.type==='ammo_box') {
-      const space = nb.ammoMax - nb.ammo;
-      const add = Math.min(space, amount-stored);
-      nb.ammo += add;
-      stored += add;
-      if (stored >= amount) break;
-    }
-  }
-  return stored;
-}
+
 
 // ================================================================
 //  防御系统（机枪塔）
