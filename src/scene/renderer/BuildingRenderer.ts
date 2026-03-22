@@ -5,6 +5,7 @@ import { DIR_DX, DIR_DY } from '../../config/GameConfig';
 import { Building } from '../../model/Building';
 import { getPathCells } from '../../utils/GridUtils';
 import { drawBuildingIcon, drawDirArrow } from './PixelIcons';
+import { GRID_COLOR_BG, GRID_COLOR_PATH, GRID_COLOR_LINE } from './GridRenderer';
 
 interface BuildingVisual {
   iconGfx:  Phaser.GameObjects.Graphics | null;  // 像素图标
@@ -145,12 +146,12 @@ export class BuildingRenderer {
     v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
     this.visuals.delete(b.id);
 
-    // 擦除格子，补回底色
+    // 擦除格子，用与 GridRenderer 完全相同的颜色还原
     const px = b.x * CELL, py = b.y * CELL;
     const isPath = this.pathSet.has(`${b.x},${b.y}`);
-    this.gfxBuilding.fillStyle(isPath ? 0x3D2B1F : 0x141414, 1);
+    this.gfxBuilding.fillStyle(isPath ? GRID_COLOR_PATH : GRID_COLOR_BG, 1);
     this.gfxBuilding.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    this.gfxBuilding.lineStyle(1, 0x2a2a2a, 1);
+    this.gfxBuilding.lineStyle(1, GRID_COLOR_LINE, 1);
     this.gfxBuilding.strokeRect(px, py, CELL, CELL);
   }
 
