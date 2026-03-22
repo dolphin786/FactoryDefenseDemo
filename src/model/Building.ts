@@ -5,6 +5,7 @@ import type { CardData } from './Card';
 export interface BeltItem {
   type: ResourceType;
   progress: number; // 0.0 → 1.0
+  qty?: number;     // 批量（如子弹5发作为1个item传输）
 }
 
 /** 机器输入缓冲 */
@@ -22,8 +23,8 @@ export class Building {
 
   // 生产计时器（矿节点/熔炉/组装机）
   prodTimer = 0;
-  // 上次输出矿种（熔炉交替逻辑）
-  lastOutput: 'iron' | 'copper' | null = null;
+  // 上次输出矿种（熔炉/多variant机器交替逻辑）
+  lastOutput: string | null = null;
 
   // 传送带槽位
   item: BeltItem | null = null;

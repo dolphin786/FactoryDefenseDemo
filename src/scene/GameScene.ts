@@ -309,13 +309,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private retryLevel(): void {
+    // 重试本关：回到关卡起点，重新选择卡组（手牌重置）
     const level = this.gs.level;
-    const hand  = this.gs.hand;
     resetCardId();
     this.gs = new GameState(level);
-    this.gs.hand = hand;
     this.initSystems();
     this.resetScene();
+    this.dialog.showStarterDeckDialog(idx => this.onDeckPicked(idx));
   }
 
   // ── 防御阶段开始 ──

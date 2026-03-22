@@ -410,6 +410,47 @@ const BLDG_CFGS = {
   core:            {hp:200, emoji:'💎', color:0xE67E22, name:'核心',  desc:'守护目标'}
 };
 
+// ================================================================
+//  配方配置表（RECIPES）
+//
+//  每条配方描述一台"加工建筑"的生产规则：
+//    buildingType : 使用该配方的建筑类型
+//    inputs       : 每次消耗的原料 { 资源类型: 数量 }
+//    outputs      : 每次产出的产品 { 资源类型: 数量 }
+//    outputMode   : 'belt'    → 产物推入输出方向传送带
+//                   'ammo'    → 产物直接写入相邻弹药箱
+//                   'both'    → 先尝试传送带，再尝试弹药箱（子弹两用）
+//    cycleTime    : 一次生产周期（秒）
+//    accepts      : 传送带可向该机器推入的资源类型（用于 machineAccepts）
+// ================================================================
+const RECIPES = [
+  {
+    buildingType: 'furnace',
+    // 熔炉同时支持两种矿→两种板，用 inputs/outputs 数组表示多个候选配方
+    // 每次只选一种（交替策略），因此拆成两条子配方
+    variants: [
+      { inputs:{ iron_ore:1   }, outputs:{ iron_plate:1   } },
+      { inputs:{ copper_ore:1 }, outputs:{ copper_plate:1 } },
+    ],
+    outputMode: 'belt',
+    cycleTime: 2,
+    accepts: ['iron_ore', 'copper_ore'],
+  },
+  {
+    buildingType: 'assembler',
+    variants: [
+      { inputs:{ iron_plate:1, copper_plate:1 }, outputs:{ bullet:5 } },
+    ],
+    outputMode: 'both',  // 先尝试传送带，传送带不通再存弹药箱
+    cycleTime: 1,
+    accepts: ['iron_plate', 'copper_plate'],
+  },
+];
+
+// 建立快速查询索引：buildingType → recipe
+const RECIPE_MAP = {};
+for (const r of RECIPES) RECIPE_MAP[r.buildingType] = r;
+
 // 关卡配置（3关）
 const LEVELS = [
   { // 第1关
@@ -694,23 +735,39 @@ function beltNextPos(b) {
   return { x: b.x + DIR_DX[b.dir], y: b.y + DIR_DY[b.dir] };
 }
 
-// ── 辅助：尝试将资源 item 推入目标格（传送带或机器输入口）
+// ── 辅助：尝试将资源 item 推入目标格
+//   支持：传送带（空槽）、机器 inputBuf、弹药箱（子弹）
 //   成功返回 true，失败返回 false ──
 function tryPushItem(item, tx, ty) {
   const tb = getCell(tx, ty);
   if (!tb) return false;
 
+  // 推入传送带空槽
   if (tb.type === 'conveyor') {
     if (tb.item == null) {
-      tb.item = { type: item.type, progress: 0 };
+      tb.item = { type: item.type, progress: 0, qty: item.qty || 1 };
       return true;
     }
     return false;
   }
 
-  // 推入机器输入缓冲（熔炉/组装机）
-  if (tb.type === 'furnace' || tb.type === 'assembler') {
+  // 推入机器 inputBuf（熔炉/组装机）
+  if (RECIPE_MAP[tb.type]) {
     return tryPushToMachineInput(tb, item.type);
+  }
+
+  // 子弹推入弹药箱
+  if (tb.type === 'ammo_box' && item.type === 'bullet') {
+    const qty = item.qty || 1;
+    const space = tb.ammoMax - tb.ammo;
+    if (space <= 0) {
+      dlog('warn', `  弹药箱(${tb.x},${tb.y})已满(${tb.ammo}/${tb.ammoMax})`, `ammo-full-${tb.id}`);
+      return false;
+    }
+    const add = Math.min(space, qty);
+    tb.ammo += add;
+    dlog('ammo', `  ↳ 子弹×${add} 进入弹药箱(${tb.x},${tb.y}) [${tb.ammo}/${tb.ammoMax}]`);
+    return true;
   }
 
   return false;
@@ -738,11 +795,10 @@ function tryPushToMachineInput(machine, resType) {
   return true;
 }
 
-// ── 辅助：判断机器是否接受某种资源 ──
+// ── 辅助：判断机器是否接受某种资源（从配方表读取） ──
 function machineAccepts(machineType, resType) {
-  if (machineType === 'furnace')   return resType === 'iron_ore' || resType === 'copper_ore';
-  if (machineType === 'assembler') return resType === 'iron_plate' || resType === 'copper_plate';
-  return false;
+  const recipe = RECIPE_MAP[machineType];
+  return recipe ? recipe.accepts.includes(resType) : false;
 }
 
 // ── 主更新：传送带流动 ──
@@ -780,10 +836,10 @@ function updateConveyors(dt) {
         b.item = null;
       } else {
         const reason = !downstream ? '目标格为空' :
-          downstream.type === 'conveyor' ? `下游传送带已有item(${downstream.item?.type})` :
-          (downstream.type === 'furnace' || downstream.type === 'assembler') ?
-            `机器inputBuf满(${JSON.stringify(downstream.inputBuf)})` :
-            `目标格类型=${downstream.type}不接受`;
+          downstream.type === 'conveyor'   ? `下游传送带已有item(${downstream.item?.type})` :
+          RECIPE_MAP[downstream.type]      ? `机器inputBuf满(${JSON.stringify(downstream.inputBuf)})` :
+          downstream.type === 'ammo_box'   ? `弹药箱已满(${downstream.ammo}/${downstream.ammoMax})` :
+                                             `目标格类型=${downstream.type}不接受`;
         dlog('warn',
           `  ❌ 堵塞(${b.x},${b.y})→(${np.x},${np.y}): ${reason}`,
           `belt-block-${b.id}`);
@@ -794,115 +850,149 @@ function updateConveyors(dt) {
 }
 
 // ── 主更新：机器生产（仅在 defense 阶段调用） ──
-// 所有资源完全通过传送带流动，无全局资源池。
-// 矿节点 → 传送带 → 熔炉(inputBuf) → 传送带 → 组装机(inputBuf) → 弹药箱
+// 矿节点 → 传送带 → 加工机器(inputBuf) → 传送带/弹药箱
+// 所有生产规则从 RECIPES 配方表读取，不再 hardcode。
 function updateProduction(dt) {
   for (const b of GS.buildings) {
     switch (b.type) {
 
-      // ── 铁矿节点：每秒尝试往输出方向传送带放1个铁矿石 ──
-      // 若传送带满则背压等待（计时器不重置，下帧继续尝试推入）
+      // ── 矿节点：每产出周期尝试把矿石推入输出方向传送带 ──
       case 'iron_ore_node':
+      case 'copper_ore_node': {
+        const oreType = b.type === 'iron_ore_node' ? 'iron_ore' : 'copper_ore';
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
           const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item == null) {
-            tb.item = { type: 'iron_ore', progress: 0 };
+            tb.item = { type: oreType, progress: 0 };
             b.prodTimer -= 1;
-            dlog('prod', `铁矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-iron-${b.id}`);
+            dlog('prod', `矿节点(${b.x},${b.y}) 产出 ${oreType}→传送带(${np.x},${np.y})`, `ore-${b.id}`);
           } else {
-            b.prodTimer = 1.0;
-            const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已有item(${tb.item?.type})`;
-            dlog('warn', `铁矿(${b.x},${b.y}) 输出方向dir=${b.dir}→(${np.x},${np.y})背压: ${reason}`, `ore-iron-block-${b.id}`);
-          }
-        }
-        break;
-
-      case 'copper_ore_node':
-        b.prodTimer += dt;
-        if (b.prodTimer >= 1) {
-          const np = beltNextPos(b);
-          const tb = getCell(np.x, np.y);
-          if (tb && tb.type === 'conveyor' && tb.item == null) {
-            tb.item = { type: 'copper_ore', progress: 0 };
-            b.prodTimer -= 1;
-            dlog('prod', `铜矿(${b.x},${b.y}) 产出→传送带(${np.x},${np.y})`, `ore-copper-${b.id}`);
-          } else {
-            b.prodTimer = 1.0;
-            const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已有item(${tb.item?.type})`;
-            dlog('warn', `铜矿(${b.x},${b.y}) dir=${b.dir}→(${np.x},${np.y})背压: ${reason}`, `ore-copper-block-${b.id}`);
-          }
-        }
-        break;
-
-      case 'furnace': {
-        if (!b.inputBuf) b.inputBuf = {};
-        b.prodTimer += dt;
-        dlog('prod',
-          `熔炉(${b.x},${b.y}) timer=${b.prodTimer.toFixed(2)} buf={Fe:${b.inputBuf.iron_ore||0} Cu:${b.inputBuf.copper_ore||0}}`,
-          `furnace-tick-${b.id}`);
-        if (b.prodTimer >= 2) {
-          const hasIron   = (b.inputBuf.iron_ore   || 0) > 0;
-          const hasCopper = (b.inputBuf.copper_ore || 0) > 0;
-          let outputType = null;
-          if      (b._lastOutput === 'iron'   && hasCopper) outputType = 'copper_plate';
-          else if (b._lastOutput === 'copper' && hasIron)   outputType = 'iron_plate';
-          else if (hasIron)                                  outputType = 'iron_plate';
-          else if (hasCopper)                                outputType = 'copper_plate';
-
-          if (outputType) {
-            if (outputType === 'iron_plate') { b.inputBuf.iron_ore--;   b._lastOutput = 'iron'; }
-            else                             { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
-            const np = beltNextPos(b);
-            const tb = getCell(np.x, np.y);
-            if (tb && tb.type === 'conveyor' && tb.item == null) {
-              tb.item = { type: outputType, progress: 0 };
-              b.prodTimer = 0;
-              dlog('prod', `✅ 熔炉(${b.x},${b.y}) 产出${outputType}→传送带(${np.x},${np.y})`);
-            } else {
-              if (outputType === 'iron_plate') b.inputBuf.iron_ore++;
-              else                             b.inputBuf.copper_ore++;
-              b.prodTimer = 1.99;
-              const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带dir=${b.dir}(${tb.type})` : `传送带已满(${tb.item?.type})`;
-              dlog('warn', `❌ 熔炉(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
-            }
-          } else {
-            b.prodTimer = 1.99;
-            dlog('prod', `熔炉(${b.x},${b.y}) 无原料等待`, `furnace-wait-${b.id}`);
+            b.prodTimer = 1.0; // 背压等待
+            const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已满(${tb.item?.type})`;
+            dlog('warn', `矿节点(${b.x},${b.y}) dir=${b.dir}→(${np.x},${np.y}) 背压: ${reason}`, `ore-block-${b.id}`);
           }
         }
         break;
       }
 
-      case 'assembler': {
+      // ── 加工机器（熔炉/组装机）：从配方表驱动 ──
+      default: {
+        const recipe = RECIPE_MAP[b.type];
+        if (!recipe) break;
+
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
-        dlog('prod',
-          `组装机(${b.x},${b.y}) timer=${b.prodTimer.toFixed(2)} buf={Fe板:${b.inputBuf.iron_plate||0} Cu板:${b.inputBuf.copper_plate||0}}`,
-          `asm-tick-${b.id}`);
-        if (b.prodTimer >= 1) {
-          const hasIronPlate   = (b.inputBuf.iron_plate   || 0) > 0;
-          const hasCopperPlate = (b.inputBuf.copper_plate || 0) > 0;
-          if (hasIronPlate && hasCopperPlate) {
-            b.inputBuf.iron_plate--;
-            b.inputBuf.copper_plate--;
-            b.prodTimer = 0;
-            const stored = storeAmmoNearby(b.x, b.y, 5);
-            dlog('ammo', `✅ 组装机(${b.x},${b.y}) 产5发子弹，存入弹药箱${stored}发`);
-          } else {
-            b.prodTimer = 0.99;
-            dlog('prod', `组装机(${b.x},${b.y}) 缺料: Fe板=${hasIronPlate?'有':'无'} Cu板=${hasCopperPlate?'有':'无'}`, `asm-wait-${b.id}`);
-          }
+
+        // 日志：显示当前 buf 状态
+        const bufStr = recipe.accepts.map(r => `${r}:${b.inputBuf[r]||0}`).join(' ');
+        dlog('prod', `${b.type}(${b.x},${b.y}) t=${b.prodTimer.toFixed(2)} [${bufStr}]`, `machine-tick-${b.id}`);
+
+        if (b.prodTimer < recipe.cycleTime) break;
+
+        // 选择可执行的 variant（第一个满足输入条件的）
+        // 熔炉有两个 variant（铁/铜交替）；组装机只有一个
+        const variant = selectVariant(recipe, b);
+        if (!variant) {
+          b.prodTimer = recipe.cycleTime - 0.01; // 无原料，下帧立即重试
+          dlog('prod', `${b.type}(${b.x},${b.y}) 无原料等待`, `machine-wait-${b.id}`);
+          break;
         }
+
+        // 消耗输入
+        for (const [res, qty] of Object.entries(variant.inputs)) {
+          b.inputBuf[res] = (b.inputBuf[res] || 0) - qty;
+        }
+        b.prodTimer = 0;
+        // 记录上次输出（供熔炉交替逻辑使用）
+        const firstOutput = Object.keys(variant.outputs)[0];
+        b._lastOutput = firstOutput.includes('iron') ? 'iron' : 'copper';
+
+        // 输出产品
+        outputProducts(b, recipe, variant);
         break;
       }
     }
   }
 
-  // 每帧统计传送带+缓冲+弹药箱用于 UI 显示
   rebuildResDisplay();
 }
+
+/**
+ * 从配方 variants 中选出一个满足 inputBuf 的 variant。
+ * 熔炉有两个 variant（铁/铜），按 _lastOutput 交替选择。
+ */
+function selectVariant(recipe, b) {
+  const variants = recipe.variants;
+  if (variants.length === 1) {
+    // 单配方：检查原料是否足够
+    return canExecute(variants[0], b) ? variants[0] : null;
+  }
+
+  // 多配方（熔炉）：交替策略
+  // 先找"上次没用的那个"，再找任意可用的
+  const preferred = variants.find(v => {
+    const outKey = Object.keys(v.outputs)[0];
+    const side = outKey.includes('iron') ? 'iron' : 'copper';
+    return side !== b._lastOutput && canExecute(v, b);
+  });
+  if (preferred) return preferred;
+  return variants.find(v => canExecute(v, b)) || null;
+}
+
+/** 检查 inputBuf 中原料是否足够执行该 variant */
+function canExecute(variant, b) {
+  for (const [res, qty] of Object.entries(variant.inputs)) {
+    if ((b.inputBuf[res] || 0) < qty) return false;
+  }
+  return true;
+}
+
+/**
+ * 根据配方 outputMode 输出产品：
+ *   'belt' → 推入输出方向传送带（堵塞时还原输入，等待）
+ *   'ammo' → 直接存入相邻弹药箱
+ *   'both' → 先尝试传送带，不通再存弹药箱
+ */
+function outputProducts(b, recipe, variant) {
+  for (const [resType, qty] of Object.entries(variant.outputs)) {
+
+    if (recipe.outputMode === 'belt' || recipe.outputMode === 'both') {
+      const np = beltNextPos(b);
+      const tb = getCell(np.x, np.y);
+      if (tb && tb.type === 'conveyor' && tb.item == null) {
+        // 每次只能推1个 item 到传送带，qty>1 时分批（每产出周期推1个）
+        // 当前实现：子弹按1个item传，携带qty信息（简化：携带 qty 在 item.qty 字段）
+        tb.item = { type: resType, progress: 0, qty };
+        dlog('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
+        continue; // 成功输出，不走弹药箱
+      }
+      // 传送带堵塞
+      if (recipe.outputMode === 'belt') {
+        // 纯belt模式：还原输入，等待
+        for (const [res, q] of Object.entries(variant.inputs)) {
+          b.inputBuf[res] = (b.inputBuf[res] || 0) + q;
+        }
+        b.prodTimer = recipe.cycleTime - 0.01;
+        const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已满`;
+        dlog('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
+        return; // 整个产出取消
+      }
+      // both模式：传送带堵塞时 fallthrough 到弹药箱
+      dlog('prod', `${b.type}(${b.x},${b.y}) 传送带满，尝试弹药箱`);
+    }
+
+    if (recipe.outputMode === 'ammo' || recipe.outputMode === 'both') {
+      if (resType === 'bullet') {
+        const stored = storeAmmoNearby(b.x, b.y, qty);
+        dlog('ammo', `✅ ${b.type}(${b.x},${b.y}) 产${qty}发子弹，存入弹药箱${stored}发`);
+        if (stored < qty) dlog('warn', `弹药箱满，丢弃${qty-stored}发子弹`);
+      }
+    }
+  }
+}
+
 
 // ── 统计资源用于 UI 显示（纯传送带模式，遍历建筑） ──
 function rebuildResDisplay() {
@@ -1396,7 +1486,7 @@ function pickReward(ch) {
 
 function retryLevel() {
   document.getElementById('overlay').classList.remove('show');
-  resetLevel(false); // 保留手牌
+  showStarterDeckDialog(); // 重试时重新选择卡组（手牌重置）
 }
 
 function restartAll() {

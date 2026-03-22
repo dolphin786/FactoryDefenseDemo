@@ -1,5 +1,5 @@
 import { BELT_SPEED, INPUT_BUF_MAX } from '../config/GameConfig';
-import { MACHINE_ACCEPTS } from '../config/BuildingConfig';
+import { RECIPE_MAP } from '../config/RecipeConfig';
 import type { ResourceType } from '../config/BuildingConfig';
 import type { Building, BeltItem } from '../model/Building';
 import type { GameState } from '../model/GameState';
@@ -59,29 +59,42 @@ export class ConveyorSystem {
     }
   }
 
-  /** 尝试将 item 推入 (tx,ty) 处的传送带或机器，返回是否成功 */
+  /** 尝试将 item 推入 (tx,ty)：传送带空槽 / 机器 inputBuf / 弹药箱（子弹） */
   private tryPushItem(gs: GameState, item: BeltItem, tx: number, ty: number): boolean {
     const tb = gs.getCell(tx, ty);
     if (!tb) return false;
 
+    // 推入传送带
     if (tb.type === 'conveyor') {
       if (tb.item == null) {
-        tb.item = { type: item.type, progress: 0 };
+        tb.item = { type: item.type, progress: 0, qty: item.qty ?? 1 };
         return true;
       }
       return false;
     }
 
-    if (tb.type === 'furnace' || tb.type === 'assembler') {
+    // 推入机器 inputBuf（查配方表）
+    if (RECIPE_MAP.has(tb.type)) {
       return this.pushToMachineInput(tb, item.type);
     }
+
+    // 子弹推入弹药箱
+    if (tb.type === 'ammo_box' && item.type === 'bullet') {
+      const qty = item.qty ?? 1;
+      const space = tb.ammoMax - tb.ammo;
+      if (space <= 0) return false;
+      tb.ammo += Math.min(space, qty);
+      logger.log('ammo', `  子弹×${Math.min(space, qty)} 进入弹药箱(${tb.x},${tb.y}) [${tb.ammo}/${tb.ammoMax}]`);
+      return true;
+    }
+
     return false;
   }
 
-  /** 向机器 inputBuf 推入一单位资源 */
+  /** 向机器 inputBuf 推入一单位资源（从配方表检查 accepts） */
   private pushToMachineInput(machine: Building, resType: ResourceType): boolean {
-    const accepts = MACHINE_ACCEPTS[machine.type];
-    if (!accepts?.includes(resType)) {
+    const recipe = RECIPE_MAP.get(machine.type);
+    if (!recipe?.accepts.includes(resType)) {
       logger.log(
         'warn',
         `  机器(${machine.x},${machine.y})[${machine.type}] 不接受 ${resType}`,
@@ -110,11 +123,9 @@ export class ConveyorSystem {
   private blockReason(gs: GameState, tx: number, ty: number, resType: ResourceType): string {
     const tb = gs.getCell(tx, ty);
     if (!tb) return '目标格为空/越界';
-    if (tb.type === 'conveyor') return `下游传送带已满(${tb.item?.type ?? '?'})`;
-    if (tb.type === 'furnace' || tb.type === 'assembler') {
-      const cur = tb.inputBuf[resType] ?? 0;
-      return `机器inputBuf满(${cur}/${INPUT_BUF_MAX}) ${resType}`;
-    }
+    if (tb.type === 'conveyor')  return `下游传送带已满(${tb.item?.type ?? '?'})`;
+    if (RECIPE_MAP.has(tb.type)) { const cur = tb.inputBuf[resType] ?? 0; return `机器buf满(${cur}/${INPUT_BUF_MAX}) ${resType}`; }
+    if (tb.type === 'ammo_box')  return `弹药箱满(${tb.ammo}/${tb.ammoMax})`;
     return `目标格类型=${tb.type}不接受`;
   }
 }

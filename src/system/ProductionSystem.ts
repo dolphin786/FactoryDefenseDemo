@@ -1,127 +1,148 @@
 import type { GameState, ResDisplay } from '../model/GameState';
 import type { Building } from '../model/Building';
+import type { BeltItem } from '../model/Building';
+import { RECIPE_MAP, type RecipeDef, type RecipeVariant } from '../config/RecipeConfig';
 import { beltNextPos } from '../utils/GridUtils';
 import { logger } from '../utils/DebugLogger';
 
 /**
- * ProductionSystem — 机器加工 + 矿节点产矿
+ * ProductionSystem — 机器加工（由配方表 RECIPES 驱动）
  *
- * 职责：
- *   - 铁/铜矿节点：按周期尝试向输出方向传送带推入矿石
- *   - 熔炉：从 inputBuf 取矿，加工后推入输出方向传送带
- *   - 组装机：从 inputBuf 取板材，产子弹写入相邻弹药箱
- *   - 每帧重建 ResDisplay（供 UI 显示）
+ * 所有生产规则从 RecipeConfig.ts 读取，ProductionSystem 本身不含任何
+ * 具体配方逻辑，新增配方只需修改配置文件。
+ *
+ * 矿节点产矿推入输出方向传送带，加工机器从 inputBuf 取料，
+ * 产物按 outputMode 推入传送带或弹药箱。
  */
 export class ProductionSystem {
   update(gs: GameState, dt: number): void {
     for (const b of gs.buildings) {
-      switch (b.type) {
-        case 'iron_ore_node':   this.updateOreNode(gs, b, dt, 'iron_ore');   break;
-        case 'copper_ore_node': this.updateOreNode(gs, b, dt, 'copper_ore'); break;
-        case 'furnace':         this.updateFurnace(gs, b, dt);               break;
-        case 'assembler':       this.updateAssembler(gs, b, dt);             break;
+      if (b.type === 'iron_ore_node' || b.type === 'copper_ore_node') {
+        this.updateOreNode(gs, b, dt);
+      } else {
+        const recipe = RECIPE_MAP.get(b.type);
+        if (recipe) this.updateMachine(gs, b, recipe, dt);
       }
     }
     this.rebuildResDisplay(gs);
   }
 
-  // ── 矿节点 ──
+  // ── 矿节点 ──────────────────────────────────────────────────────
 
-  private updateOreNode(
-    gs: GameState,
-    b: Building,
-    dt: number,
-    resType: 'iron_ore' | 'copper_ore',
-  ): void {
+  private updateOreNode(gs: GameState, b: Building, dt: number): void {
+    const oreType = b.type === 'iron_ore_node' ? 'iron_ore' : 'copper_ore';
     b.prodTimer += dt;
     if (b.prodTimer < 1) return;
 
     const np = beltNextPos(b);
     const tb = gs.getCell(np.x, np.y);
     if (tb?.type === 'conveyor' && tb.item == null) {
-      tb.item = { type: resType, progress: 0 };
+      tb.item = { type: oreType as BeltItem['type'], progress: 0, qty: 1 };
       b.prodTimer -= 1;
-      logger.log('prod', `矿节点(${b.x},${b.y}) 产出 ${resType} → (${np.x},${np.y})`, `ore-${b.id}`);
+      logger.log('prod', `矿节点(${b.x},${b.y}) 产出 ${oreType}→(${np.x},${np.y})`, `ore-${b.id}`);
     } else {
-      b.prodTimer = 1.0; // 背压等待
-      const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : `传送带已满`;
+      b.prodTimer = 1.0;
+      const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : '传送带已满';
       logger.log('warn', `矿节点(${b.x},${b.y}) dir=${b.dir}→(${np.x},${np.y}) 背压: ${reason}`, `ore-block-${b.id}`);
     }
   }
 
-  // ── 熔炉 ──
+  // ── 加工机器（配方驱动）────────────────────────────────────────
 
-  private updateFurnace(gs: GameState, b: Building, dt: number): void {
+  private updateMachine(gs: GameState, b: Building, recipe: RecipeDef, dt: number): void {
+    if (!b.inputBuf) b.inputBuf = {};
     b.prodTimer += dt;
-    logger.log(
-      'prod',
-      `熔炉(${b.x},${b.y}) t=${b.prodTimer.toFixed(2)} Fe=${b.inputBuf.iron_ore ?? 0} Cu=${b.inputBuf.copper_ore ?? 0}`,
-      `furnace-tick-${b.id}`,
-    );
-    if (b.prodTimer < 2) return;
 
-    const hasIron   = (b.inputBuf.iron_ore   ?? 0) > 0;
-    const hasCopper = (b.inputBuf.copper_ore ?? 0) > 0;
-    let outputType: 'iron_plate' | 'copper_plate' | null = null;
+    const bufStr = recipe.accepts.map(r => `${r}:${b.inputBuf[r] ?? 0}`).join(' ');
+    logger.log('prod', `${b.type}(${b.x},${b.y}) t=${b.prodTimer.toFixed(2)} [${bufStr}]`, `machine-${b.id}`);
 
-    if      (b.lastOutput === 'iron'   && hasCopper) outputType = 'copper_plate';
-    else if (b.lastOutput === 'copper' && hasIron)   outputType = 'iron_plate';
-    else if (hasIron)                                 outputType = 'iron_plate';
-    else if (hasCopper)                               outputType = 'copper_plate';
+    if (b.prodTimer < recipe.cycleTime) return;
 
-    if (!outputType) {
-      b.prodTimer = 1.99;
-      logger.log('prod', `熔炉(${b.x},${b.y}) 无原料等待`, `furnace-wait-${b.id}`);
+    const variant = this.selectVariant(recipe, b);
+    if (!variant) {
+      b.prodTimer = recipe.cycleTime - 0.01;
+      logger.log('prod', `${b.type}(${b.x},${b.y}) 无原料等待`, `machine-wait-${b.id}`);
       return;
     }
 
-    // 扣料
-    if (outputType === 'iron_plate')   { b.inputBuf.iron_ore   = (b.inputBuf.iron_ore   ?? 0) - 1; b.lastOutput = 'iron'; }
-    else                               { b.inputBuf.copper_ore = (b.inputBuf.copper_ore ?? 0) - 1; b.lastOutput = 'copper'; }
+    // 消耗输入
+    for (const [res, qty] of Object.entries(variant.inputs) as [string, number][]) {
+      ((b.inputBuf as Record<string,number>)[res]) = (((b.inputBuf as Record<string,number>)[res]) ?? 0) - qty;
+    }
+    b.prodTimer = 0;
 
-    // 推入输出方向传送带
-    const np = beltNextPos(b);
-    const tb = gs.getCell(np.x, np.y);
-    if (tb?.type === 'conveyor' && tb.item == null) {
-      tb.item = { type: outputType, progress: 0 };
-      b.prodTimer = 0;
-      logger.log('prod', `✅ 熔炉(${b.x},${b.y}) 产 ${outputType} → (${np.x},${np.y})`);
-    } else {
-      // 还料，等待下帧
-      if (outputType === 'iron_plate')   b.inputBuf.iron_ore   = (b.inputBuf.iron_ore   ?? 0) + 1;
-      else                               b.inputBuf.copper_ore = (b.inputBuf.copper_ore ?? 0) + 1;
-      b.prodTimer = 1.99;
-      const reason = !tb ? '无格子' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : '传送带满';
-      logger.log('warn', `❌ 熔炉(${b.x},${b.y}) 输出堵塞→(${np.x},${np.y}): ${reason}`);
+    // 记录输出类型（供熔炉交替逻辑）
+    const firstOut = Object.keys(variant.outputs)[0];
+    b.lastOutput = firstOut.includes('iron') ? 'iron' : 'copper';
+
+    // 输出产品
+    const outputDone = this.outputProducts(gs, b, recipe, variant);
+    if (!outputDone) {
+      // 输出失败（belt模式堵塞）：还原输入，等待
+      for (const [res, qty] of Object.entries(variant.inputs) as [string, number][]) {
+        ((b.inputBuf as Record<string,number>)[res]) = (((b.inputBuf as Record<string,number>)[res]) ?? 0) + qty;
+      }
+      b.prodTimer = recipe.cycleTime - 0.01;
     }
   }
 
-  // ── 组装机 ──
+  /**
+   * 选择可执行的 variant
+   * 多 variant（熔炉）：交替优先选上次未用的那种
+   */
+  private selectVariant(recipe: RecipeDef, b: Building): RecipeVariant | null {
+    const { variants } = recipe;
+    if (variants.length === 1) return this.canExecute(variants[0], b) ? variants[0] : null;
 
-  private updateAssembler(gs: GameState, b: Building, dt: number): void {
-    b.prodTimer += dt;
-    logger.log(
-      'prod',
-      `组装机(${b.x},${b.y}) t=${b.prodTimer.toFixed(2)} Fe板=${b.inputBuf.iron_plate ?? 0} Cu板=${b.inputBuf.copper_plate ?? 0}`,
-      `asm-tick-${b.id}`,
-    );
-    if (b.prodTimer < 1) return;
-
-    const hasIron   = (b.inputBuf.iron_plate   ?? 0) > 0;
-    const hasCopper = (b.inputBuf.copper_plate ?? 0) > 0;
-    if (hasIron && hasCopper) {
-      b.inputBuf.iron_plate   = (b.inputBuf.iron_plate   ?? 0) - 1;
-      b.inputBuf.copper_plate = (b.inputBuf.copper_plate ?? 0) - 1;
-      b.prodTimer = 0;
-      const stored = this.storeAmmoNearby(gs, b.x, b.y, 5);
-      logger.log('ammo', `✅ 组装机(${b.x},${b.y}) 产5发子弹，存入${stored}发`);
-    } else {
-      b.prodTimer = 0.99;
-      logger.log('prod', `组装机(${b.x},${b.y}) 缺料: Fe板=${hasIron} Cu板=${hasCopper}`, `asm-wait-${b.id}`);
-    }
+    // 交替：优先"上次没做"的
+    const preferred = variants.find(v => {
+      const outKey = Object.keys(v.outputs)[0];
+      const side = outKey.includes('iron') ? 'iron' : 'copper';
+      return side !== b.lastOutput && this.canExecute(v, b);
+    });
+    if (preferred) return preferred;
+    return variants.find(v => this.canExecute(v, b)) ?? null;
   }
 
-  /** 向相邻弹药箱存入子弹，返回实际存入量 */
+  private canExecute(variant: RecipeVariant, b: Building): boolean {
+    for (const [res, qty] of Object.entries(variant.inputs) as [string, number][]) {
+      if ((((b.inputBuf as Record<string,number>)[res]) ?? 0) < qty) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 输出产品：
+   *   'belt' → 推入输出方向传送带（失败返回 false，由调用方还原输入）
+   *   'ammo' → 存入相邻弹药箱
+   *   'both' → 先传送带，不通再弹药箱
+   */
+  private outputProducts(gs: GameState, b: Building, recipe: RecipeDef, variant: RecipeVariant): boolean {
+    for (const [resType, qty] of Object.entries(variant.outputs) as [string, number][]) {
+      if (recipe.outputMode === 'belt' || recipe.outputMode === 'both') {
+        const np = beltNextPos(b);
+        const tb = gs.getCell(np.x, np.y);
+        if (tb?.type === 'conveyor' && tb.item == null) {
+          tb.item = { type: resType as BeltItem['type'], progress: 0, qty };
+          logger.log('prod', `✅ ${b.type}(${b.x},${b.y}) 产出 ${resType}×${qty}→传送带(${np.x},${np.y})`);
+          continue;
+        }
+        if (recipe.outputMode === 'belt') {
+          const reason = !tb ? '输出格为空' : tb.type !== 'conveyor' ? `非传送带(${tb.type})` : '传送带已满';
+          logger.log('warn', `❌ ${b.type}(${b.x},${b.y}) 输出堵塞: ${reason}`);
+          return false;
+        }
+        logger.log('prod', `${b.type}(${b.x},${b.y}) 传送带满，尝试弹药箱`);
+      }
+
+      if ((recipe.outputMode === 'ammo' || recipe.outputMode === 'both') && resType === 'bullet') {
+        const stored = this.storeAmmoNearby(gs, b.x, b.y, qty);
+        logger.log('ammo', `✅ ${b.type}(${b.x},${b.y}) 产${qty}发子弹，存入${stored}发`);
+      }
+    }
+    return true;
+  }
+
   private storeAmmoNearby(gs: GameState, x: number, y: number, amount: number): number {
     const dirs = [{ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 }];
     let stored = 0;
@@ -138,7 +159,7 @@ export class ProductionSystem {
     return stored;
   }
 
-  // ── 资源显示统计 ──
+  // ── 资源显示统计 ────────────────────────────────────────────────
 
   private rebuildResDisplay(gs: GameState): void {
     const d: ResDisplay = { iron_ore: 0, copper_ore: 0, iron_plate: 0, copper_plate: 0, bullet: 0 };
