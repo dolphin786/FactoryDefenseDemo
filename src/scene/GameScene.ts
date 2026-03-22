@@ -129,20 +129,33 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private resetScene(): void {
-    this.buildingRenderer.clearAll();
+  /**
+   * 重置场景渲染。
+   * @param keepBuildings true = 保留场上建筑（过关继承），false = 全部清空（重试/新游戏）
+   */
+  private resetScene(keepBuildings = false): void {
     this.enemyRenderer.clearAll();
     this.effectRenderer.clearAll();
     this.hoverRenderer.clearAll();
-    this.gridRenderer.draw();
 
-    // 放置核心建筑
-    const core = this.gs.placeCoreBuilding();
-    if (core) this.buildingRenderer.add(core);
+    if (keepBuildings) {
+      // 保留建筑：只重绘静态底图，重新渲染已有建筑视觉
+      this.buildingRenderer.clearAll();
+      this.gridRenderer.draw();
+      for (const b of this.gs.buildings) {
+        this.buildingRenderer.add(b);
+      }
+    } else {
+      // 全部清空：清渲染器，重绘底图，放置核心
+      this.buildingRenderer.clearAll();
+      this.gridRenderer.draw();
+      const core = this.gs.placeCoreBuilding();
+      if (core) this.buildingRenderer.add(core);
+    }
 
     this.hud.showStartBtn();
     this.hud.hideCountdown();
-    this.hud.setPhaseLabel('【准备阶段】', '#95A5A6');
+    this.hud.setPhaseLabel('prepare');
     this.hud.updateTopBar(this.gs);
     this.hud.updateResources(this.gs);
     this.cardMgr.render(this.gs);
@@ -311,12 +324,11 @@ export class GameScene extends Phaser.Scene {
     const survivedHand = this.gs.hand.filter(c => !(c.type === 'resource' && (c.durability ?? 1) <= 0));
     survivedHand.push(rewardCard);
 
-    const nextLevel = this.gs.level + 1;
-    resetCardId();
-    this.gs = new GameState(nextLevel);
+    // 推进关卡：保留场上建筑，只重置波次/敌人/核心血量
+    this.gs.advanceToLevel(this.gs.level + 1);
     this.gs.hand = survivedHand;
     this.initSystems();
-    this.resetScene();
+    this.resetScene(true); // keepBuildings = true
   }
 
   private retryLevel(): void {
@@ -340,7 +352,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hud.hideStartBtn();
     this.hud.showCountdown(3);
-    this.hud.setPhaseLabel('【防御阶段】', '#E74C3C');
+    this.hud.setPhaseLabel('defense');
     this.showWaveAnnounce('防御阶段开始！');
   }
 

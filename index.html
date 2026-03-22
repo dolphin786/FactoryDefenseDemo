@@ -3,221 +3,618 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>工厂守卫战 - Factory Defense</title>
+<title>工厂守卫战</title>
+<!-- 像素字体：Press Start 2P（英文数字）+ ZCOOL QingKe HuangYou（中文） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
 <style>
+/* ─── 全局变量 ─────────────────────────────── */
+:root {
+  --bg:       #0d0d0d;
+  --bg2:      #181818;
+  --bg3:      #222;
+  --border:   #444;
+  --border2:  #333;
+  --green:    #39ff14;   /* 霓虹绿 */
+  --green2:   #1a7a00;
+  --amber:    #ffb000;   /* 琥珀黄 */
+  --red:      #ff3030;
+  --blue:     #00bfff;
+  --dimtext:  #666;
+  --text:     #ccc;
+  --white:    #eee;
+  /* 像素字体 */
+  --font-px:  'Press Start 2P', monospace;
+  --font-cn:  'ZCOOL QingKe HuangYou', 'Microsoft YaHei', sans-serif;
+}
+
+/* ─── 重置 ───────────────────────────────── */
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
-  background:#1a252f;
-  font-family:'Microsoft YaHei','SimHei',sans-serif;
-  overflow:hidden;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  height:100vh;
-  user-select:none;
+  background: var(--bg);
+  font-family: var(--font-cn);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100vh;
+  user-select: none;
+  /* CRT 扫描线叠层 */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.18) 2px,
+    rgba(0,0,0,0.18) 4px
+  );
 }
+
+/* ─── 像素边框 mixin（用 box-shadow 模拟 2px 外描边） ─── */
+.px-border {
+  border: 2px solid var(--border);
+  image-rendering: pixelated;
+}
+.px-border-green { border: 2px solid var(--green); }
+.px-border-amber { border: 2px solid var(--amber); }
+
+/* ─── 像素按钮 ───────────────────────────── */
+.px-btn {
+  font-family: var(--font-px);
+  font-size: 9px;
+  background: var(--bg3);
+  color: var(--text);
+  border: 2px solid var(--border);
+  padding: 5px 10px;
+  cursor: pointer;
+  /* 像素凸起效果 */
+  box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #555;
+  transition: filter 0.05s;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.px-btn:hover  { filter: brightness(1.3); }
+.px-btn:active { box-shadow: inset 2px 2px 0 #000, inset -2px -2px 0 #555; }
+.px-btn.active {
+  background: var(--green2);
+  color: var(--green);
+  border-color: var(--green);
+  box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #1fff00;
+}
+.px-btn.danger  { color: var(--red);   border-color: var(--red);   background: #2a0000; }
+.px-btn.success { color: var(--green); border-color: var(--green); background: var(--green2); }
+.px-btn.primary { color: var(--amber); border-color: var(--amber); background: #2a1a00; }
+
+/* ─── 容器 ───────────────────────────────── */
 #game-container {
-  display:flex; flex-direction:column;
-  width:100%; max-width:920px; height:100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 920px;
+  height: 100vh;
 }
+
+/* ─── 顶部信息栏 ─────────────────────────── */
 #top-bar {
-  background:#2C3E50; border-bottom:2px solid #34495E;
-  padding:5px 10px; display:flex; align-items:center;
-  gap:14px; flex-shrink:0; flex-wrap:wrap; min-height:36px;
+  background: var(--bg2);
+  border-bottom: 2px solid var(--border);
+  padding: 0 8px;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex-shrink: 0;
+  height: 38px;
+  overflow: hidden;
 }
-.info-item { color:#ECF0F1; font-size:12px; display:flex; align-items:center; gap:3px; }
-.val { color:#F39C12; font-weight:bold; }
-.hp-val { color:#27AE60; font-weight:bold; }
-.hp-val.low { color:#E74C3C; animation:pulse 0.5s infinite alternate; }
-@keyframes pulse { from{opacity:1} to{opacity:0.5} }
-#speed-controls { display:flex; gap:4px; margin-left:auto; }
-.speed-btn {
-  background:#34495E; color:#ECF0F1; border:1px solid #4A6278;
-  padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;
+
+/* 每个信息格子 */
+.info-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-right: 2px solid var(--border2);
+  font-family: var(--font-px);
+  font-size: 8px;
+  white-space: nowrap;
 }
-.speed-btn:hover { background:#4A6278; }
-.speed-btn.active { background:#F39C12; color:#2C3E50; border-color:#E67E22; font-weight:bold; }
-#debug-btn {
-  background:#1a3a1a; color:#27AE60; border:1px solid #27AE60;
-  padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;
+.info-cell .label { color: var(--dimtext); }
+.info-cell .val   { color: var(--amber); }
+.info-cell .hp-val { color: var(--green); }
+.info-cell .hp-val.low {
+  color: var(--red);
+  animation: blink 0.4s steps(1) infinite;
 }
+@keyframes blink { 50% { opacity: 0; } }
+
+#phase-badge {
+  font-family: var(--font-px);
+  font-size: 7px;
+  padding: 2px 6px;
+  border: 2px solid;
+  letter-spacing: 1px;
+}
+#phase-badge.prepare { color: var(--blue);  border-color: var(--blue);  background: #001a2a; }
+#phase-badge.defense { color: var(--red);   border-color: var(--red);   background: #2a0000; }
+
+#speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0 8px;
+}
+
+/* ─── 游戏画布区 ─────────────────────────── */
 #game-area {
-  flex:1; display:flex; justify-content:center; align-items:center;
-  background:#1a252f; overflow:hidden; min-height:0;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg);
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
 }
+
+/* ─── 资源栏 ─────────────────────────────── */
 #resource-bar {
-  background:#2C3E50; border-top:1px solid #34495E; border-bottom:1px solid #34495E;
-  padding:4px 10px; display:flex; align-items:center; gap:10px;
-  flex-shrink:0; flex-wrap:wrap; min-height:28px;
+  background: var(--bg2);
+  border-top: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  height: 26px;
+  overflow: hidden;
 }
-.resource-item { display:flex; align-items:center; gap:3px; font-size:11px; color:#BDC3C7; }
-.resource-item .rcount { color:#F39C12; font-weight:bold; min-width:20px; text-align:right; }
+
+.res-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-right: 1px solid var(--border2);
+  font-family: var(--font-px);
+  font-size: 7px;
+  white-space: nowrap;
+}
+.res-item .res-icon {
+  width: 8px; height: 8px;
+  display: inline-block;
+  border: 1px solid rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+/* 资源色块（代替 emoji） */
+.res-icon.iron-ore    { background: #8B4513; }
+.res-icon.copper-ore  { background: #CD7F32; }
+.res-icon.iron-plate  { background: #708090; }
+.res-icon.copper-plate{ background: #B87333; }
+.res-icon.bullet      { background: #FFD700; border-radius: 50%; }
+
+.res-item .label { color: var(--dimtext); }
+.res-item .rcount { color: var(--amber); min-width: 22px; text-align: right; }
+
+/* ─── 卡牌栏 ─────────────────────────────── */
 #card-bar {
-  background:#263545; padding:6px 10px; display:flex;
-  align-items:center; gap:6px; flex-shrink:0; overflow-x:auto; min-height:86px;
+  background: var(--bg2);
+  border-top: 2px solid var(--border);
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  min-height: 88px;
+  /* 隐藏滚动条但仍可滚动 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg2);
 }
-#belt-btn {
-  background:#607D8B; color:white; border:2px solid #78909C;
-  padding:5px 8px; border-radius:6px; cursor:pointer;
-  font-size:10px; font-family:inherit; min-width:48px; max-width:52px;
-  text-align:center; flex-shrink:0; line-height:1.3;
-}
-#belt-btn:hover { background:#78909C; }
-#belt-btn.active { background:#F39C12; border-color:#E67E22; color:#2C3E50; font-weight:bold; }
+#card-bar::-webkit-scrollbar { height: 4px; }
+#card-bar::-webkit-scrollbar-track { background: var(--bg2); }
+#card-bar::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* 卡牌 */
 .card {
-  background:#34495E; border:2px solid #4A6278; border-radius:7px;
-  padding:5px 6px; cursor:pointer; min-width:62px; max-width:66px;
-  text-align:center; flex-shrink:0; transition:all 0.12s; position:relative;
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  padding: 5px 4px 4px;
+  cursor: pointer;
+  min-width: 58px;
+  max-width: 62px;
+  text-align: center;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
+  transition: filter 0.05s;
+  image-rendering: pixelated;
 }
-.card:hover { border-color:#F39C12; transform:translateY(-2px); }
-.card.selected { border-color:#F39C12; background:#3D5166; box-shadow:0 0 10px #F39C1260; transform:translateY(-3px); }
-.card .cicon { font-size:16px; line-height:1.3; }
-.card .cname { font-size:9px; color:#ECF0F1; margin-top:1px; font-weight:bold; }
-.card .cdesc { font-size:8px; color:#95A5A6; margin-top:1px; }
-.card .cdur { position:absolute; top:2px; right:3px; font-size:8px; color:#F39C12; font-weight:bold; }
-.card.res { border-color:#27AE60; }
-.card.def { border-color:#E74C3C; }
-.card.pro { border-color:#3498DB; }
-.card.sto { border-color:#F39C12; }
+.card:hover  { filter: brightness(1.25); }
+.card.selected {
+  border-color: var(--amber);
+  background: #1a1200;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 var(--amber),
+              0 0 8px var(--amber)40;
+}
+
+/* 卡牌颜色分类 */
+.card.res  { border-color: #2d6e2d; }
+.card.pro  { border-color: #1a3d6e; }
+.card.def  { border-color: #6e1a1a; }
+.card.sto  { border-color: #6e5a1a; }
+.card.res.selected  { border-color: var(--green); }
+.card.pro.selected  { border-color: var(--blue);  }
+.card.def.selected  { border-color: var(--red);   }
+.card.sto.selected  { border-color: var(--amber); }
+
+/* 卡牌内的像素图标（16×16 色块组合） */
+.card .card-icon-wrap {
+  width: 32px; height: 32px;
+  margin: 0 auto 3px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.card .cname {
+  font-family: var(--font-px);
+  font-size: 6px;
+  color: var(--text);
+  line-height: 1.4;
+  letter-spacing: 0.5px;
+}
+.card .cdesc {
+  font-family: var(--font-cn);
+  font-size: 8px;
+  color: var(--dimtext);
+  margin-top: 1px;
+}
+.card .cdur {
+  position: absolute;
+  top: 2px; right: 3px;
+  font-family: var(--font-px);
+  font-size: 6px;
+  color: var(--amber);
+}
+
+/* 开始防御按钮 */
 #start-btn {
-  background:#27AE60; color:white; border:none;
-  padding:8px 16px; border-radius:8px; cursor:pointer;
-  font-size:13px; font-family:inherit; font-weight:bold;
-  flex-shrink:0; margin-left:auto; white-space:nowrap;
+  font-family: var(--font-px);
+  font-size: 9px;
+  background: #001a00;
+  color: var(--green);
+  border: 2px solid var(--green);
+  padding: 10px 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+  letter-spacing: 1px;
+  box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #1fff00,
+              0 0 12px var(--green)30;
+  line-height: 1.6;
+  text-align: center;
 }
-#start-btn:hover { background:#2ECC71; }
-/* 弹窗 */
+#start-btn:hover { filter: brightness(1.2); box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #1fff00, 0 0 20px var(--green)50; }
+#start-btn:active { box-shadow: inset 2px 2px 0 #000, inset -2px -2px 0 #1fff00; }
+
+/* 传送带按钮 */
+#belt-btn {
+  font-family: var(--font-px);
+  font-size: 7px;
+  background: var(--bg3);
+  color: var(--dimtext);
+  border: 2px solid var(--border);
+  padding: 8px 6px;
+  cursor: pointer;
+  min-width: 46px;
+  max-width: 50px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1.6;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
+}
+#belt-btn:hover  { filter: brightness(1.25); }
+#belt-btn.active {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: #1a1200;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 var(--amber);
+}
+
+/* ─── 弹窗 ───────────────────────────────── */
 #overlay {
-  position:fixed; top:0; left:0; width:100%; height:100%;
-  background:rgba(0,0,0,0.78); z-index:1000;
-  display:none; justify-content:center; align-items:center;
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85);
+  z-index: 1000;
+  display: none; justify-content: center; align-items: center;
 }
-#overlay.show { display:flex; }
+#overlay.show { display: flex; }
+
 #dialog {
-  background:#2C3E50; border:2px solid #F39C12; border-radius:12px;
-  padding:24px 32px; text-align:center; max-width:480px; width:92%;
-  color:#ECF0F1; box-shadow:0 8px 32px #00000080;
+  background: var(--bg2);
+  border: 2px solid var(--border);
+  /* 像素双边框效果 */
+  box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--border),
+              0 0 40px rgba(0,191,255,0.15);
+  padding: 24px 28px;
+  text-align: center;
+  max-width: 520px;
+  width: 94%;
+  color: var(--text);
 }
-#dialog h2 { font-size:22px; margin-bottom:10px; }
-#dialog p { font-size:13px; color:#BDC3C7; margin:5px 0; }
-.card-choices { display:flex; gap:10px; margin:14px 0; justify-content:center; flex-wrap:wrap; }
+#dialog h2 {
+  font-family: var(--font-px);
+  font-size: 14px;
+  margin-bottom: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 10px currentColor;
+}
+#dialog p {
+  font-family: var(--font-cn);
+  font-size: 13px;
+  color: var(--dimtext);
+  margin: 6px 0;
+  line-height: 1.5;
+}
+#dialog p strong { color: var(--amber); }
+
+/* 奖励卡选择 */
+.card-choices {
+  display: flex; gap: 10px; margin: 16px 0;
+  justify-content: center; flex-wrap: wrap;
+}
 .choice-card {
-  background:#34495E; border:2px solid #4A6278; border-radius:8px;
-  padding:10px 12px; cursor:pointer; min-width:90px; text-align:center; transition:all 0.15s;
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  padding: 12px 10px;
+  cursor: pointer;
+  min-width: 90px; text-align: center;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
 }
-.choice-card:hover { border-color:#F39C12; background:#3D5166; transform:translateY(-2px); }
-.choice-card .cico { font-size:22px; }
-.choice-card .cnm  { font-size:11px; margin-top:4px; color:#ECF0F1; }
-.dbtn {
-  background:#3498DB; color:white; border:none; padding:9px 22px;
-  border-radius:8px; cursor:pointer; font-size:13px; font-family:inherit; margin:5px 4px;
+.choice-card:hover {
+  border-color: var(--amber);
+  filter: brightness(1.2);
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 var(--amber),
+              0 0 10px var(--amber)30;
 }
-.dbtn:hover { background:#2980B9; }
-.dbtn.red { background:#E74C3C; } .dbtn.red:hover { background:#C0392B; }
-.dbtn.grn { background:#27AE60; } .dbtn.grn:hover { background:#2ECC71; }
+.choice-card .cico {
+  font-size: 24px; line-height: 1;
+  /* 不用 emoji，留给 Phaser 或 CSS 图标；暂保留 */
+}
+.choice-card .cnm {
+  font-family: var(--font-px);
+  font-size: 7px; margin-top: 6px; color: var(--text);
+  letter-spacing: 0.5px;
+}
+
 /* 起始卡组 */
-.starter-decks { display:flex; gap:12px; margin:14px 0; justify-content:center; flex-wrap:wrap; }
+.starter-decks {
+  display: flex; gap: 10px; margin: 14px 0;
+  justify-content: center; flex-wrap: wrap;
+}
 .starter-deck {
-  background:#34495E; border:2px solid #4A6278; border-radius:10px;
-  padding:14px 16px; cursor:pointer; width:130px; text-align:center; transition:all 0.15s;
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  padding: 14px 12px;
+  cursor: pointer; width: 140px; text-align: center;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
 }
-.starter-deck:hover { transform:translateY(-3px); box-shadow:0 6px 16px #00000060; }
-.starter-deck .dk-icon { font-size:28px; margin-bottom:6px; }
-.starter-deck .dk-name { font-size:13px; font-weight:bold; color:#ECF0F1; margin-bottom:4px; }
-.starter-deck .dk-desc { font-size:10px; color:#95A5A6; }
-.starter-deck .dk-cards { margin-top:8px; font-size:9px; color:#BDC3C7; line-height:1.6; text-align:left; }
-/* 波次提示 */
+.starter-deck:hover {
+  filter: brightness(1.2);
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #888,
+              0 0 12px rgba(255,255,255,0.1);
+}
+.starter-deck .dk-icon {
+  font-family: var(--font-px);
+  font-size: 18px; margin-bottom: 8px; display: block;
+}
+.starter-deck .dk-name {
+  font-family: var(--font-px);
+  font-size: 8px; font-weight: normal;
+  color: var(--white); margin-bottom: 4px; letter-spacing: 0.5px;
+}
+.starter-deck .dk-desc {
+  font-family: var(--font-cn);
+  font-size: 10px; color: var(--dimtext); margin-bottom: 6px;
+}
+.starter-deck .dk-cards {
+  font-family: var(--font-cn);
+  font-size: 9px; color: #555; line-height: 1.7; text-align: left;
+}
+
+/* 对话框按钮 */
+.dbtn {
+  font-family: var(--font-px);
+  font-size: 8px;
+  background: var(--bg3); color: var(--text);
+  border: 2px solid var(--border);
+  padding: 8px 16px; cursor: pointer; margin: 6px 4px;
+  letter-spacing: 1px;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
+}
+.dbtn:hover  { filter: brightness(1.3); }
+.dbtn:active { box-shadow: inset 2px 2px 0 #000, inset -1px -1px 0 #555; }
+.dbtn.red {
+  color: var(--red); border-color: var(--red); background: #2a0000;
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #ff6060;
+}
+.dbtn.grn {
+  color: var(--green); border-color: var(--green); background: var(--green2);
+  box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #1fff00;
+}
+
+/* ─── 波次提示 ───────────────────────────── */
 #wave-announce {
-  position:fixed; top:45%; left:50%; transform:translate(-50%,-50%);
-  background:rgba(231,76,60,0.92); color:white; font-size:26px; font-weight:bold;
-  padding:14px 32px; border-radius:10px; pointer-events:none; z-index:500;
-  display:none; text-shadow:0 2px 4px #00000060; border:2px solid rgba(255,255,255,0.3);
+  position: fixed; top: 42%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: #1a0000;
+  border: 2px solid var(--red);
+  box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--red),
+              0 0 30px var(--red)50;
+  color: var(--red);
+  font-family: var(--font-px);
+  font-size: 16px;
+  letter-spacing: 3px;
+  padding: 16px 32px;
+  pointer-events: none;
+  z-index: 500;
+  display: none;
+  text-shadow: 0 0 12px var(--red);
 }
+
+/* ─── 操作提示条 ─────────────────────────── */
 #hint-bar {
-  position:fixed; bottom:92px; left:50%; transform:translateX(-50%);
-  background:rgba(0,0,0,0.75); color:#F39C12; font-size:11px;
-  padding:3px 12px; border-radius:4px; pointer-events:none; z-index:400;
-  display:none; white-space:nowrap;
+  position: fixed; bottom: 96px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg2);
+  border: 2px solid var(--border);
+  color: var(--amber);
+  font-family: var(--font-px);
+  font-size: 7px;
+  padding: 5px 14px;
+  pointer-events: none;
+  z-index: 400;
+  display: none;
+  white-space: nowrap;
+  letter-spacing: 1px;
 }
-/* Debug 面板 */
+
+/* ─── Debug 面板（保持 monospace 不走像素字体，方便阅读） ───── */
 #debug-panel {
-  display:none; position:fixed; top:40px; right:0; width:320px;
-  height:calc(100vh - 40px); background:rgba(10,14,18,0.93);
-  border-left:2px solid #27AE60; z-index:2000; flex-direction:column; font-family:monospace;
+  display: none; position: fixed; top: 38px; right: 0;
+  width: 320px; height: calc(100vh - 38px);
+  background: rgba(8,12,8,0.96);
+  border-left: 2px solid var(--green);
+  z-index: 2000; flex-direction: column; font-family: monospace;
 }
-#debug-panel.show { display:flex; }
+#debug-panel.show { display: flex; }
 #debug-header {
-  background:#1a2e1a; padding:4px 8px; display:flex;
-  align-items:center; justify-content:space-between;
-  flex-shrink:0; border-bottom:1px solid #27AE60;
+  background: #0a180a; padding: 4px 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; border-bottom: 1px solid var(--green);
 }
-#debug-header span { color:#27AE60; font-size:11px; font-weight:bold; }
-#debug-header button { background:none; border:1px solid #27AE60; color:#27AE60; font-size:10px; padding:1px 6px; border-radius:3px; cursor:pointer; }
-#debug-filter { display:flex; gap:4px; padding:4px 8px; flex-shrink:0; border-bottom:1px solid #263238; flex-wrap:wrap; }
-.df-btn { font-size:9px; padding:1px 5px; border-radius:3px; cursor:pointer; border:1px solid #37474F; background:#1a252f; color:#7F8C8D; }
-.df-btn.on { background:#1a3a1a; color:#27AE60; border-color:#27AE60; }
-#debug-log { flex:1; overflow-y:auto; padding:4px 8px; font-size:10px; line-height:1.6; }
-#debug-log .dl { display:block; border-bottom:1px solid #1a252f; padding:1px 0; white-space:pre-wrap; word-break:break-all; }
-#debug-log .dl.belt  { color:#3498DB; }
-#debug-log .dl.prod  { color:#F39C12; }
-#debug-log .dl.ammo  { color:#E74C3C; }
-#debug-log .dl.warn  { color:#E74C3C; font-weight:bold; }
-#debug-log .dl.info  { color:#95A5A6; }
-#debug-log .dl.tower { color:#E67E22; }
+#debug-header span { color: var(--green); font-size: 10px; font-weight: bold; }
+#debug-header button {
+  background: none; border: 1px solid var(--green);
+  color: var(--green); font-size: 9px; padding: 1px 6px; cursor: pointer;
+}
+#debug-filter {
+  display: flex; gap: 4px; padding: 4px 8px;
+  flex-shrink: 0; border-bottom: 1px solid #1a2a1a; flex-wrap: wrap;
+}
+.df-btn {
+  font-size: 9px; padding: 1px 5px; cursor: pointer;
+  border: 1px solid #333; background: var(--bg); color: #555;
+}
+.df-btn.on { background: #0a180a; color: var(--green); border-color: var(--green); }
+#debug-log { flex: 1; overflow-y: auto; padding: 4px 8px; font-size: 10px; line-height: 1.6; }
+#debug-log .dl { display: block; border-bottom: 1px solid #111; padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+#debug-log .dl.belt  { color: #00bfff; }
+#debug-log .dl.prod  { color: var(--amber); }
+#debug-log .dl.ammo  { color: var(--red); }
+#debug-log .dl.warn  { color: var(--red); font-weight: bold; }
+#debug-log .dl.info  { color: #555; }
+#debug-log .dl.tower { color: #ff8c00; }
 </style>
 </head>
 <body>
 <div id="game-container">
+
+  <!-- ── 顶部信息栏 ── -->
   <div id="top-bar">
-    <div class="info-item">💎核心: <span class="hp-val" id="core-hp">200/200</span></div>
-    <div class="info-item">🌊波次: <span class="val" id="wave-info">0/3</span></div>
-    <div class="info-item" id="cd-wrap" style="display:none">⏱下波: <span class="val" id="wave-cd">--</span>s</div>
-    <div class="info-item">🏆关卡: <span class="val" id="level-info">1</span></div>
-    <div class="info-item" id="phase-info" style="color:#95A5A6">【准备阶段】</div>
+    <div class="info-cell">
+      <span class="label">CORE</span>
+      <span class="hp-val" id="core-hp">200/200</span>
+    </div>
+    <div class="info-cell">
+      <span class="label">WAVE</span>
+      <span class="val" id="wave-info">0/3</span>
+    </div>
+    <div class="info-cell" id="cd-wrap" style="display:none">
+      <span class="label">NEXT</span>
+      <span class="val" id="wave-cd">--</span>
+      <span class="label">s</span>
+    </div>
+    <div class="info-cell">
+      <span class="label">LV</span>
+      <span class="val" id="level-info">1</span>
+    </div>
+    <div class="info-cell">
+      <span id="phase-badge" class="prepare">PREPARE</span>
+    </div>
     <div id="speed-controls">
-      <button class="speed-btn" id="btn-pause" onclick="setSpeed(0)">⏸暂停</button>
-      <button class="speed-btn active" id="btn-1x" onclick="setSpeed(1)">1x</button>
-      <button class="speed-btn" id="btn-2x" onclick="setSpeed(2)">2x</button>
-      <button class="speed-btn" id="btn-4x" onclick="setSpeed(4)">4x</button>
-      <button id="debug-btn" onclick="toggleDebug()">🔬Debug</button>
+      <button class="px-btn" id="btn-pause" onclick="setSpeed(0)">II</button>
+      <button class="px-btn active" id="btn-1x" onclick="setSpeed(1)">1X</button>
+      <button class="px-btn" id="btn-2x" onclick="setSpeed(2)">2X</button>
+      <button class="px-btn" id="btn-4x" onclick="setSpeed(4)">4X</button>
+      <button class="px-btn" id="debug-btn" onclick="toggleDebug()" style="color:#39ff14;border-color:#39ff14">DBG</button>
     </div>
   </div>
+
+  <!-- ── Phaser 画布 ── -->
   <div id="game-area"></div>
+
+  <!-- ── 资源栏 ── -->
   <div id="resource-bar">
-    <span style="color:#95A5A6;font-size:11px;flex-shrink:0">资源:</span>
-    <div class="resource-item">⛏铁矿<span class="rcount" id="res-iron_ore">0</span></div>
-    <div class="resource-item">🪨铜矿<span class="rcount" id="res-copper_ore">0</span></div>
-    <div class="resource-item">🔩铁板<span class="rcount" id="res-iron_plate">0</span></div>
-    <div class="resource-item">🟤铜板<span class="rcount" id="res-copper_plate">0</span></div>
-    <div class="resource-item">🟡子弹<span class="rcount" id="res-bullet">0</span></div>
+    <div class="res-item">
+      <span class="res-icon iron-ore"></span>
+      <span class="label">IRON</span>
+      <span class="rcount" id="res-iron_ore">0</span>
+    </div>
+    <div class="res-item">
+      <span class="res-icon copper-ore"></span>
+      <span class="label">CUPR</span>
+      <span class="rcount" id="res-copper_ore">0</span>
+    </div>
+    <div class="res-item">
+      <span class="res-icon iron-plate"></span>
+      <span class="label">I-PL</span>
+      <span class="rcount" id="res-iron_plate">0</span>
+    </div>
+    <div class="res-item">
+      <span class="res-icon copper-plate"></span>
+      <span class="label">C-PL</span>
+      <span class="rcount" id="res-copper_plate">0</span>
+    </div>
+    <div class="res-item">
+      <span class="res-icon bullet"></span>
+      <span class="label">AMMO</span>
+      <span class="rcount" id="res-bullet">0</span>
+    </div>
   </div>
+
+  <!-- ── 卡牌栏 ── -->
   <div id="card-bar">
-    <button id="belt-btn" onclick="toggleBeltMode()">传送带<br>→</button>
+    <button id="belt-btn" onclick="toggleBeltMode()">BELT<br>&gt;&gt;</button>
     <div id="hand-cards" style="display:flex;gap:6px;align-items:center;"></div>
-    <button id="start-btn" onclick="startDefense()">▶ 开始防御</button>
+    <button id="start-btn" onclick="startDefense()">[ START<br>DEFENSE ]</button>
   </div>
-</div>
 
+</div><!-- /#game-container -->
+
+<!-- ── 波次提示 ── -->
 <div id="wave-announce"></div>
-<div id="hint-bar">R键旋转方向 | 右键取消</div>
+<!-- ── 操作提示 ── -->
+<div id="hint-bar">R:ROTATE &nbsp; RMB:CANCEL</div>
 
+<!-- ── Debug 面板 ── -->
 <div id="debug-panel">
   <div id="debug-header">
-    <span>🔬 传送带调试日志</span>
-    <button onclick="clearDebugLog()">清空</button>
+    <span>&gt; BELT DEBUG LOG</span>
+    <button onclick="clearDebugLog()">CLR</button>
   </div>
   <div id="debug-filter">
-    <span style="color:#7F8C8D;font-size:9px;align-self:center">过滤:</span>
-    <button class="df-btn on" data-tag="belt"  onclick="toggleFilter(this)">传送带</button>
-    <button class="df-btn on" data-tag="prod"  onclick="toggleFilter(this)">生产</button>
-    <button class="df-btn on" data-tag="ammo"  onclick="toggleFilter(this)">弹药</button>
-    <button class="df-btn on" data-tag="tower" onclick="toggleFilter(this)">炮塔</button>
-    <button class="df-btn on" data-tag="warn"  onclick="toggleFilter(this)">警告</button>
-    <button class="df-btn on" data-tag="info"  onclick="toggleFilter(this)">信息</button>
+    <button class="df-btn on" data-tag="belt"  onclick="toggleFilter(this)">BELT</button>
+    <button class="df-btn on" data-tag="prod"  onclick="toggleFilter(this)">PROD</button>
+    <button class="df-btn on" data-tag="ammo"  onclick="toggleFilter(this)">AMMO</button>
+    <button class="df-btn on" data-tag="tower" onclick="toggleFilter(this)">TOWER</button>
+    <button class="df-btn on" data-tag="warn"  onclick="toggleFilter(this)">WARN</button>
+    <button class="df-btn on" data-tag="info"  onclick="toggleFilter(this)">INFO</button>
   </div>
   <div id="debug-log"></div>
 </div>
 
+<!-- ── 结算弹窗 ── -->
 <div id="overlay">
   <div id="dialog">
     <h2 id="dlg-title"></h2>

@@ -124,6 +124,35 @@ export class GameState {
     return this.inGrid(x, y) ? this.grid[y][x] : null;
   }
 
+  // ── 关卡推进（保留建筑） ──
+
+  /**
+   * 进入下一关：只重置波次/敌人/核心血量/游戏阶段，
+   * 保留 grid、buildings（场上建筑完整继承），
+   * 也保留传送带上的 item 和机器 inputBuf（生产线继续运转）。
+   */
+  advanceToLevel(nextLevel: number): void {
+    this.level = nextLevel;
+    const lvCfg = LEVEL_CONFIGS[nextLevel - 1] ?? LEVEL_CONFIGS[0];
+    this.waveTotal    = lvCfg.totalWaves;
+    this.phase        = 'prepare';
+    this.timeSpeed    = 1;
+    this.paused       = false;
+    this.gameOver     = false;
+    this.coreHealth   = this.coreMaxHealth; // 核心血量恢复满
+    this.waveCurrent  = 0;
+    this.waveInProgress = false;
+    this.waveCooldown = 0;
+    this.waveCounting = false;
+    this.enemies      = [];
+    this.spawnQueue   = [];
+    this.spawnTimer   = 0;
+    this.selectedCard = null;
+    this.beltMode     = false;
+    this.selectedDir  = 0;
+    // buildings / grid 不动
+  }
+
   // ── 快捷访问 ──
 
   get corePosX(): number { return CORE_X; }

@@ -2,6 +2,23 @@ import { BUILDING_CONFIGS } from '../config/BuildingConfig';
 import type { CardData } from '../model/Card';
 import type { GameState } from '../model/GameState';
 
+/**
+ * 像素色块图标配置
+ * 用 CSS background 色块代替 emoji，与复古像素风一致。
+ */
+const CARD_ICON_CFG: Record<string, { bg: string; label: string }> = {
+  iron_ore_node:   { bg: '#8B4513', label: 'ORE' },
+  copper_ore_node: { bg: '#CD7F32', label: 'ORE' },
+  furnace:         { bg: '#C0392B', label: 'FRN' },
+  assembler:       { bg: '#2471A3', label: 'ASM' },
+  gun_tower:       { bg: '#922B21', label: 'GUN' },
+  wall:            { bg: '#707B7C', label: 'WLL' },
+  ammo_box:        { bg: '#D4AC0D', label: 'AMO' },
+  conveyor:        { bg: '#4A5568', label: 'BLT' },
+  iron_resource:   { bg: '#8B4513', label: 'ORE' },
+  copper_resource: { bg: '#CD7F32', label: 'ORE' },
+};
+
 /** CardManager — 管理手牌栏的 DOM 渲染和点击事件 */
 export class CardManager {
   private onCardSelected: (card: CardData) => void;
@@ -21,17 +38,40 @@ export class CardManager {
       const sel = gs.selectedCard?.id === card.id ? ' selected' : '';
       div.className = `card ${cls}${sel}`;
 
-      let ico = '', nm = '', desc = '';
+      // 确定图标 key 和名称
+      let iconKey = '';
+      let nm = '';
+      let shortDesc = '';
+
       if (card.type === 'resource') {
-        ico  = card.resourceType === 'iron' ? '⛏️' : '🪨';
-        nm   = card.resourceType === 'iron' ? '铁矿' : '铜矿';
-        desc = '1矿/秒';
-        div.innerHTML = `<span class="cdur">●${card.durability}</span>`;
+        iconKey = card.resourceType === 'iron' ? 'iron_resource' : 'copper_resource';
+        nm      = card.resourceType === 'iron' ? 'IRON' : 'CUPR';
+        shortDesc = '1/s';
+        // 耐久标记
+        div.innerHTML = `<span class="cdur">x${card.durability}</span>`;
       } else {
-        const cfg = BUILDING_CONFIGS[card.buildingType!];
-        ico = cfg.emoji; nm = cfg.name; desc = cfg.desc;
+        const btype = card.buildingType!;
+        iconKey   = btype;
+        const cfg = BUILDING_CONFIGS[btype];
+        // 取名称前4个字母作为像素风缩写（英文）
+        nm        = CARD_NAME_SHORT[btype] ?? cfg.name.slice(0, 4).toUpperCase();
+        shortDesc = cfg.desc;
+        div.innerHTML = '';
       }
-      div.innerHTML += `<div class="cicon">${ico}</div><div class="cname">${nm}</div><div class="cdesc">${desc}</div>`;
+
+      const icfg = CARD_ICON_CFG[iconKey];
+      const iconHtml = icfg
+        ? `<div class="card-icon-wrap">
+             <div style="width:24px;height:24px;background:${icfg.bg};border:2px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;">
+               <span style="font-family:var(--font-px);font-size:5px;color:rgba(255,255,255,0.7);letter-spacing:0;">${icfg.label}</span>
+             </div>
+           </div>`
+        : '<div class="card-icon-wrap"></div>';
+
+      div.innerHTML += `${iconHtml}
+        <div class="cname">${nm}</div>
+        <div class="cdesc">${shortDesc}</div>`;
+
       div.addEventListener('click', () => this.onCardSelected(card));
       container.appendChild(div);
     }
@@ -41,3 +81,15 @@ export class CardManager {
     if (bb) bb.className = gs.beltMode ? 'active' : '';
   }
 }
+
+/** 建筑类型的像素风短名（全大写，≤6字符） */
+const CARD_NAME_SHORT: Record<string, string> = {
+  iron_ore_node:   'IRON',
+  copper_ore_node: 'CUPR',
+  furnace:         'FURNC',
+  assembler:       'ASMBL',
+  gun_tower:       'GUN',
+  wall:            'WALL',
+  ammo_box:        'AMMO',
+  conveyor:        'BELT',
+};

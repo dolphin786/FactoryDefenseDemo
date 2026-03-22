@@ -19,11 +19,11 @@ export class HudManager {
 
   updateResources(gs: GameState): void {
     const d = gs.resDisplay;
-    this.setText('res-iron_ore',    String(Math.floor(d.iron_ore)));
-    this.setText('res-copper_ore',  String(Math.floor(d.copper_ore)));
-    this.setText('res-iron_plate',  String(Math.floor(d.iron_plate)));
-    this.setText('res-copper_plate',String(Math.floor(d.copper_plate)));
-    this.setText('res-bullet',      String(Math.floor(d.bullet)));
+    this.setText('res-iron_ore',     String(Math.floor(d.iron_ore)));
+    this.setText('res-copper_ore',   String(Math.floor(d.copper_ore)));
+    this.setText('res-iron_plate',   String(Math.floor(d.iron_plate)));
+    this.setText('res-copper_plate', String(Math.floor(d.copper_plate)));
+    this.setText('res-bullet',       String(Math.floor(d.bullet)));
   }
 
   showCountdown(secs: number): void {
@@ -38,11 +38,17 @@ export class HudManager {
     if (wrap) wrap.style.display = 'none';
   }
 
-  setPhaseLabel(text: string, color: string): void {
-    const el = document.getElementById('phase-info');
+  /** 切换阶段标签：prepare / defense */
+  setPhaseLabel(phase: 'prepare' | 'defense'): void {
+    const el = document.getElementById('phase-badge');
     if (!el) return;
-    el.textContent = text;
-    el.style.color = color;
+    if (phase === 'prepare') {
+      el.textContent = 'PREPARE';
+      el.className = 'prepare';
+    } else {
+      el.textContent = 'DEFENSE';
+      el.className = 'defense';
+    }
   }
 
   showStartBtn(): void  { this.setDisplay('start-btn', ''); }
