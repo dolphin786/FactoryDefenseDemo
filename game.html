@@ -641,21 +641,23 @@ function updateProduction(dt) {
   for (const b of GS.buildings) {
     switch (b.type) {
 
-      // ── 铁矿节点：1秒产1个铁矿石，推入输出方向传送带 ──
+      // ── 铁矿节点：1秒产1铁矿石 ──
+      // 优先推入输出方向传送带；输出方向不是传送带（或传送带满）则退回全局池
       case 'iron_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
           b.prodTimer -= 1;
-          const np = beltNextPos(b); // 使用 b.dir 决定输出方向
+          const np = beltNextPos(b);
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'iron_ore', progress: 0 };
+          } else {
+            GS.res.iron_ore++; // 无传送带或传送带满 → 进全局池
           }
-          // 否则：传送带满，矿石丢弃（背压由计时器自然体现：下秒再试）
         }
         break;
 
-      // ── 铜矿节点：1秒产1个铜矿石，推入输出方向传送带 ──
+      // ── 铜矿节点：1秒产1铜矿石 ──
       case 'copper_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
@@ -664,61 +666,76 @@ function updateProduction(dt) {
           const tb = getCell(np.x, np.y);
           if (tb && tb.type === 'conveyor' && tb.item === null) {
             tb.item = { type: 'copper_ore', progress: 0 };
+          } else {
+            GS.res.copper_ore++;
           }
         }
         break;
 
-      // ── 熔炉：从输入缓冲取矿，2秒加工成板，推入输出方向传送带 ──
-      // 输入：任何方向的传送带都可以喂料（通过 tryPushToMachineInput）
-      // 输出：b.dir 方向的传送带接收板材
+      // ── 熔炉：2秒加工，铁矿→铁板 或 铜矿→铜板 ──
+      // 取料：优先从 inputBuf（传送带喂料），其次从全局池
+      // 输出：优先推入输出方向传送带，否则进全局池
       case 'furnace': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 2) {
-          // 优先交替处理铁矿和铜矿，同上次修复逻辑
-          const hasIron   = (b.inputBuf.iron_ore   || 0) > 0;
-          const hasCopper = (b.inputBuf.copper_ore || 0) > 0;
-          let outputType = null;
+          // 合并来源：传送带缓冲 + 全局池
+          const ironAvail   = (b.inputBuf.iron_ore   || 0) + GS.res.iron_ore;
+          const copperAvail = (b.inputBuf.copper_ore || 0) + GS.res.copper_ore;
 
-          if (b._lastOutput === 'iron' && hasCopper)       outputType = 'copper_plate';
-          else if (b._lastOutput === 'copper' && hasIron)  outputType = 'iron_plate';
-          else if (hasIron)                                 outputType = 'iron_plate';
-          else if (hasCopper)                               outputType = 'copper_plate';
+          // 交替选择矿种
+          let outputType = null;
+          if      (b._lastOutput === 'iron'   && copperAvail > 0) outputType = 'copper_plate';
+          else if (b._lastOutput === 'copper' && ironAvail   > 0) outputType = 'iron_plate';
+          else if (ironAvail   > 0)                                outputType = 'iron_plate';
+          else if (copperAvail > 0)                                outputType = 'copper_plate';
 
           if (outputType) {
-            // 消耗原料
-            if (outputType === 'iron_plate')   { b.inputBuf.iron_ore--;   b._lastOutput = 'iron'; }
-            else                               { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
+            // 扣料：优先扣传送带缓冲，不足时扣全局池
+            if (outputType === 'iron_plate') {
+              if ((b.inputBuf.iron_ore || 0) > 0) b.inputBuf.iron_ore--;
+              else GS.res.iron_ore--;
+              b._lastOutput = 'iron';
+            } else {
+              if ((b.inputBuf.copper_ore || 0) > 0) b.inputBuf.copper_ore--;
+              else GS.res.copper_ore--;
+              b._lastOutput = 'copper';
+            }
             b.prodTimer = 0;
 
-            // 将板材推入输出方向传送带
+            // 产物：优先推入输出方向传送带，否则进全局池
             const np = beltNextPos(b);
             const tb = getCell(np.x, np.y);
             if (tb && tb.type === 'conveyor' && tb.item === null) {
               tb.item = { type: outputType, progress: 0 };
+            } else {
+              if (outputType === 'iron_plate')   GS.res.iron_plate++;
+              else                               GS.res.copper_plate++;
             }
-            // 输出方向堵塞时，产品丢弃（玩家需要保证输出侧畅通）
           } else {
-            b.prodTimer = 1.99; // 无原料，下帧继续等
+            b.prodTimer = 1.99;
           }
         }
         break;
       }
 
-      // ── 组装机：从输入缓冲取铁板+铜板，1秒产5发子弹 ──
-      // 子弹直接写入相邻弹药箱（子弹不走传送带）
+      // ── 组装机：1秒产5发子弹，消耗铁板+铜板 ──
+      // 取料：优先从 inputBuf（传送带喂料），其次从全局池
+      // 子弹直接写入相邻弹药箱，弹药箱满时进全局池计数
       case 'assembler': {
         if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
-          const hasIronPlate   = (b.inputBuf.iron_plate   || 0) > 0;
-          const hasCopperPlate = (b.inputBuf.copper_plate || 0) > 0;
-          if (hasIronPlate && hasCopperPlate) {
-            b.inputBuf.iron_plate--;
-            b.inputBuf.copper_plate--;
+          const ironAvail   = (b.inputBuf.iron_plate   || 0) + GS.res.iron_plate;
+          const copperAvail = (b.inputBuf.copper_plate || 0) + GS.res.copper_plate;
+          if (ironAvail > 0 && copperAvail > 0) {
+            // 扣料
+            if ((b.inputBuf.iron_plate   || 0) > 0) b.inputBuf.iron_plate--;
+            else GS.res.iron_plate--;
+            if ((b.inputBuf.copper_plate || 0) > 0) b.inputBuf.copper_plate--;
+            else GS.res.copper_plate--;
             b.prodTimer = 0;
             const stored = storeAmmoNearby(b.x, b.y, 5);
-            // 弹药箱满或无相邻弹药箱时，多余子弹进全局显示计数
             GS.res.bullet = Math.max(0, GS.res.bullet + (5 - stored));
           } else {
             b.prodTimer = 0.99;
@@ -729,29 +746,30 @@ function updateProduction(dt) {
     }
   }
 
-  // 重建全局资源显示计数（从传送带+机器缓冲中统计，用于UI显示）
+  // 重建全局资源显示计数（传送带上 + 机器缓冲 + 全局池）
   rebuildResDisplay();
 }
 
-// ── 统计全局资源显示数据（遍历所有传送带和机器缓冲） ──
+// ── 统计资源显示数据（传送带 + 机器缓冲 + 全局池 + 弹药箱） ──
 function rebuildResDisplay() {
-  const counts = { iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0 };
+  const counts = {
+    iron_ore:     GS.res.iron_ore,
+    copper_ore:   GS.res.copper_ore,
+    iron_plate:   GS.res.iron_plate,
+    copper_plate: GS.res.copper_plate,
+    bullet:       GS.res.bullet,
+  };
   for (const b of GS.buildings) {
-    // 传送带上的物品
     if (b.type === 'conveyor' && b.item) {
       if (counts[b.item.type] !== undefined) counts[b.item.type]++;
     }
-    // 机器输入缓冲
     if (b.inputBuf) {
       for (const [k, v] of Object.entries(b.inputBuf)) {
         if (counts[k] !== undefined) counts[k] += v;
       }
     }
-    // 弹药箱
     if (b.type === 'ammo_box') counts.bullet += b.ammo;
   }
-  // 加上溢出的全局子弹（弹药箱满时溢出部分，仅用于显示）
-  counts.bullet += GS.res.bullet;
   GS.res._display = counts;
 }
 
@@ -1599,13 +1617,34 @@ class GameScene extends Phaser.Scene {
 
     const objs = {graphics:g};
 
-    // 图标
+    // 图标 + 方向指示
     const DIR_ARROWS=['→','↓','←','↑'];
-    const iconTxt = b.type==='conveyor' ? DIR_ARROWS[b.dir]||'→' : cfg.emoji;
-    const icon = this.add.text(cx, b.type==='core'?cy:cy-4, iconTxt, {
+    // 有输出方向的建筑类型
+    const HAS_DIR = ['iron_ore_node','copper_ore_node','furnace','assembler','conveyor'];
+    let iconTxt, dirTxt = null;
+
+    if (b.type === 'conveyor') {
+      iconTxt = DIR_ARROWS[b.dir] || '→';
+    } else {
+      iconTxt = cfg.emoji;
+      if (HAS_DIR.includes(b.type)) {
+        dirTxt = DIR_ARROWS[b.dir] || '→'; // 输出方向箭头，单独渲染在右下角
+      }
+    }
+
+    const iconY = (b.type==='core' || b.type==='conveyor') ? cy : cy - 3;
+    const icon = this.add.text(cx, iconY, iconTxt, {
       fontSize:'18px', align:'center'
     }).setOrigin(0.5).setDepth(3);
     objs.icon = icon;
+
+    // 输出方向箭头（右下角小字）
+    if (dirTxt) {
+      const dirLabel = this.add.text(cx+13, cy+13, dirTxt, {
+        fontSize:'12px', color:'#FFFF88', stroke:'#000000', strokeThickness:2
+      }).setOrigin(0.5).setDepth(4);
+      objs.dirLabel = dirLabel;
+    }
 
     // 弹药箱：额外文字
     if (b.type==='ammo_box') {
@@ -1676,7 +1715,7 @@ class GameScene extends Phaser.Scene {
     this.gfxBuilding.lineStyle(1,0x37474F,1);
     this.gfxBuilding.strokeRect(px,py,CELL,CELL);
     // 销毁文字对象
-    ['icon','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(objs[k]) objs[k].destroy(); });
+    ['icon','dirLabel','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(objs[k]) objs[k].destroy(); });
     delete this.bldgTexts[b.id];
     // 重绘路径（建筑覆盖了路径）
     this.drawPath();
@@ -1764,7 +1803,7 @@ class GameScene extends Phaser.Scene {
           document.getElementById('hint-bar').textContent =
             `传送带 [${DIR_NAMES[GS.selectedDir]}]  R键旋转 | 右键退出`;
         } else {
-          // ── 普通建筑预览：半透明底色 + 图标 ──
+          // ── 普通建筑预览：半透明底色 + 图标 + 方向箭头 ──
           const card=GS.selectedCard;
           let btype = card.type==='resource'
             ? (card.resourceType==='iron'?'iron_ore_node':'copper_ore_node')
@@ -1773,11 +1812,23 @@ class GameScene extends Phaser.Scene {
           if (cfg) {
             g.fillStyle(cfg.color, 0.45);
             g.fillRect(gx*CELL+3,gy*CELL+3,CELL-6,CELL-6);
-            // 如果建筑有方向（如传送带），在预览里也显示带方向的图标
-            const needsDir = (btype==='furnace'||btype==='assembler');
-            this._hoverPreviewText = this.add.text(cx, cy, cfg.emoji, {
-              fontSize:'20px', alpha:0.85
+
+            // 有输出方向的建筑：显示 emoji + 方向箭头
+            const hasDir = ['iron_ore_node','copper_ore_node','furnace','assembler'].includes(btype);
+            const DIR_ARROWS = ['→','↓','←','↑'];
+            const previewText = hasDir
+              ? cfg.emoji + DIR_ARROWS[GS.selectedDir]
+              : cfg.emoji;
+
+            this._hoverPreviewText = this.add.text(cx, cy, previewText, {
+              fontSize:'14px', align:'center'
             }).setOrigin(0.5).setDepth(20);
+
+            if (hasDir) {
+              const DIR_NAMES=['向右','向下','向左','向上'];
+              document.getElementById('hint-bar').textContent =
+                `输出方向: [${DIR_NAMES[GS.selectedDir]}]  R键旋转 | 右键取消`;
+            }
           }
           // 机枪塔射程预览圈
           if (card.buildingType==='gun_tower') {
@@ -1824,7 +1875,7 @@ class GameScene extends Phaser.Scene {
     // 销毁所有建筑文字
     for (const id in this.bldgTexts) {
       const o=this.bldgTexts[id];
-      ['icon','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(o[k]) o[k].destroy(); });
+      ['icon','dirLabel','ammoTxt','warn','hpBg','hpBar'].forEach(k=>{ if(o[k]) o[k].destroy(); });
     }
     this.bldgTexts={};
     // 销毁所有敌人文字
@@ -1851,10 +1902,14 @@ class GameScene extends Phaser.Scene {
     if (GS.paused || GS.gameOver) return;
     const dt=(delta/1000)*GS.timeSpeed;
 
-    if (GS.phase==='defense') {
+    // 传送带和生产系统：准备阶段和防御阶段都运行，让玩家能即时验证产线
+    if (GS.phase === 'prepare' || GS.phase === 'defense') {
+      updateConveyors(dt);
+      updateProduction(dt);
+    }
+
+    if (GS.phase === 'defense') {
       updateWave(dt);
-      updateConveyors(dt);   // 先推进传送带上的物品
-      updateProduction(dt);  // 矿节点产矿、机器加工
       updateEnemies(dt);
       updateDefense(dt);
     }
