@@ -533,87 +533,226 @@ function getPathCells() {
 }
 
 // ================================================================
-//  生产系统
+//  传送带逐格流动系统
+//
+//  核心数据：每个传送带建筑有 b.item = null | { type, progress }
+//    - type:     资源类型字符串，如 'iron_ore'
+//    - progress: 0.0 ~ 1.0，表示资源在本格的传输进度，1.0=已到格中心，准备移出
+//
+//  方向编码（b.dir）：0=右 1=下 2=左 3=上
+//  对应偏移：
+const DIR_DX = [1, 0, -1, 0];
+const DIR_DY = [0, 1, 0, -1];
+//
+//  流动规则：
+//  1. 矿节点计时产矿，尝试把矿推入其"输出方向"那格传送带（若空槽则成功）
+//  2. 传送带每帧推进本格资源的 progress（速度2格/秒）
+//  3. progress >= 1 时，尝试把资源推入下游（下一格传送带的空槽，或机器的输入缓冲）
+//  4. 熔炉/组装机有输入缓冲区，从其"输入方向"的传送带拉取原料
+//  5. 传送带满（有item）时上游无法推入，自然产生背压
+//  6. 子弹由组装机直接写入相邻弹药箱（不走传送带，简化实现）
+//
+//  更新顺序：从末端往源头（逆序），防止资源在一帧内连续移动多格
 // ================================================================
+
+const BELT_SPEED = 2.0; // 传送带速度：格/秒
+
+// ── 辅助：获取传送带下游格子坐标 ──
+function beltNextPos(b) {
+  return { x: b.x + DIR_DX[b.dir], y: b.y + DIR_DY[b.dir] };
+}
+
+// ── 辅助：尝试将资源 item 推入目标格（传送带或机器输入口）
+//   成功返回 true，失败返回 false ──
+function tryPushItem(item, tx, ty) {
+  const tb = getCell(tx, ty);
+  if (!tb) return false;
+
+  if (tb.type === 'conveyor') {
+    if (tb.item === null) {
+      tb.item = { type: item.type, progress: 0 };
+      return true;
+    }
+    return false;
+  }
+
+  // 推入机器输入缓冲（熔炉/组装机）
+  if (tb.type === 'furnace' || tb.type === 'assembler') {
+    return tryPushToMachineInput(tb, item.type);
+  }
+
+  return false;
+}
+
+// ── 辅助：向机器输入缓冲推入一个资源
+//   每台机器有 b.inputBuf = { iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0 }
+//   缓冲上限：每种最多 4 个（防止无限堆积） ──
+const INPUT_BUF_MAX = 4;
+
+function tryPushToMachineInput(machine, resType) {
+  if (!machine.inputBuf) machine.inputBuf = {};
+  const allowed = machineAccepts(machine.type, resType);
+  if (!allowed) return false;
+  const cur = machine.inputBuf[resType] || 0;
+  if (cur >= INPUT_BUF_MAX) return false;
+  machine.inputBuf[resType] = cur + 1;
+  return true;
+}
+
+// ── 辅助：判断机器是否接受某种资源 ──
+function machineAccepts(machineType, resType) {
+  if (machineType === 'furnace')   return resType === 'iron_ore' || resType === 'copper_ore';
+  if (machineType === 'assembler') return resType === 'iron_plate' || resType === 'copper_plate';
+  return false;
+}
+
+// ── 主更新：传送带流动 ──
+function updateConveyors(dt) {
+  // 找出所有传送带，按"距离源头远的优先处理"（简化：直接倒序遍历buildings）
+  // 倒序保证末端先更新，避免同帧连续推进
+  const belts = [];
+  for (const b of GS.buildings) {
+    if (b.type === 'conveyor') belts.push(b);
+  }
+
+  // 从末端往源头处理（倒序遍历即可近似，真正拓扑排序复杂度过高）
+  for (let i = belts.length - 1; i >= 0; i--) {
+    const b = belts[i];
+    if (!b.item) continue;
+
+    b.item.progress += BELT_SPEED * dt;
+
+    if (b.item.progress >= 1.0) {
+      // 尝试把资源推到下游
+      const np = beltNextPos(b);
+      const pushed = tryPushItem(b.item, np.x, np.y);
+      if (pushed) {
+        b.item = null; // 本格清空
+      } else {
+        b.item.progress = 1.0; // 堵塞，卡在格子末端等待
+      }
+    }
+  }
+}
+
+// ── 主更新：矿节点产矿 → 推入输出方向传送带 ──
+// ── 机器加工 ──
 function updateProduction(dt) {
   for (const b of GS.buildings) {
-    switch(b.type) {
+    switch (b.type) {
 
-      // --- 铁矿点：每秒产1铁矿石 ---
+      // ── 铁矿节点：1秒产1个铁矿石，推入输出方向传送带 ──
       case 'iron_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
           b.prodTimer -= 1;
-          GS.res.iron_ore++;
+          const np = beltNextPos(b); // 使用 b.dir 决定输出方向
+          const tb = getCell(np.x, np.y);
+          if (tb && tb.type === 'conveyor' && tb.item === null) {
+            tb.item = { type: 'iron_ore', progress: 0 };
+          }
+          // 否则：传送带满，矿石丢弃（背压由计时器自然体现：下秒再试）
         }
         break;
 
-      // --- 铜矿点：每秒产1铜矿石 ---
+      // ── 铜矿节点：1秒产1个铜矿石，推入输出方向传送带 ──
       case 'copper_ore_node':
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
           b.prodTimer -= 1;
-          GS.res.copper_ore++;
+          const np = beltNextPos(b);
+          const tb = getCell(np.x, np.y);
+          if (tb && tb.type === 'conveyor' && tb.item === null) {
+            tb.item = { type: 'copper_ore', progress: 0 };
+          }
         }
         break;
 
-      // --- 熔炉：2秒加工一次，铁矿→铁板 或 铜矿→铜板 ---
-      // 每台熔炉记住自己上次加工的类型，下次优先处理另一种，
-      // 实现两种矿石的均衡消耗，避免所有熔炉抢同一种矿。
-      case 'furnace':
+      // ── 熔炉：从输入缓冲取矿，2秒加工成板，推入输出方向传送带 ──
+      // 输入：任何方向的传送带都可以喂料（通过 tryPushToMachineInput）
+      // 输出：b.dir 方向的传送带接收板材
+      case 'furnace': {
+        if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 2) {
-          // 根据上次输出类型决定本次优先处理哪种矿
-          // b._lastOutput: undefined / 'iron' / 'copper'
-          const wantCopper = (b._lastOutput === 'iron') && GS.res.copper_ore > 0;
-          const wantIron   = (b._lastOutput === 'copper' || !b._lastOutput) && GS.res.iron_ore > 0;
+          // 优先交替处理铁矿和铜矿，同上次修复逻辑
+          const hasIron   = (b.inputBuf.iron_ore   || 0) > 0;
+          const hasCopper = (b.inputBuf.copper_ore || 0) > 0;
+          let outputType = null;
 
-          if (wantIron) {
-            GS.res.iron_ore--;
-            GS.res.iron_plate++;
-            b._lastOutput = 'iron';
+          if (b._lastOutput === 'iron' && hasCopper)       outputType = 'copper_plate';
+          else if (b._lastOutput === 'copper' && hasIron)  outputType = 'iron_plate';
+          else if (hasIron)                                 outputType = 'iron_plate';
+          else if (hasCopper)                               outputType = 'copper_plate';
+
+          if (outputType) {
+            // 消耗原料
+            if (outputType === 'iron_plate')   { b.inputBuf.iron_ore--;   b._lastOutput = 'iron'; }
+            else                               { b.inputBuf.copper_ore--; b._lastOutput = 'copper'; }
             b.prodTimer = 0;
-          } else if (wantCopper) {
-            GS.res.copper_ore--;
-            GS.res.copper_plate++;
-            b._lastOutput = 'copper';
-            b.prodTimer = 0;
-          } else if (GS.res.iron_ore > 0) {
-            // 备选：铜矿没有就处理铁矿
-            GS.res.iron_ore--;
-            GS.res.iron_plate++;
-            b._lastOutput = 'iron';
-            b.prodTimer = 0;
-          } else if (GS.res.copper_ore > 0) {
-            // 备选：铁矿没有就处理铜矿
-            GS.res.copper_ore--;
-            GS.res.copper_plate++;
-            b._lastOutput = 'copper';
-            b.prodTimer = 0;
+
+            // 将板材推入输出方向传送带
+            const np = beltNextPos(b);
+            const tb = getCell(np.x, np.y);
+            if (tb && tb.type === 'conveyor' && tb.item === null) {
+              tb.item = { type: outputType, progress: 0 };
+            }
+            // 输出方向堵塞时，产品丢弃（玩家需要保证输出侧畅通）
           } else {
-            b.prodTimer = 1.99; // 无原料，下帧继续等待
+            b.prodTimer = 1.99; // 无原料，下帧继续等
           }
         }
         break;
+      }
 
-      // --- 组装机：1秒产5发子弹，消耗铁板+铜板 ---
-      case 'assembler':
+      // ── 组装机：从输入缓冲取铁板+铜板，1秒产5发子弹 ──
+      // 子弹直接写入相邻弹药箱（子弹不走传送带）
+      case 'assembler': {
+        if (!b.inputBuf) b.inputBuf = {};
         b.prodTimer += dt;
         if (b.prodTimer >= 1) {
-          if (GS.res.iron_plate > 0 && GS.res.copper_plate > 0) {
-            GS.res.iron_plate--;
-            GS.res.copper_plate--;
+          const hasIronPlate   = (b.inputBuf.iron_plate   || 0) > 0;
+          const hasCopperPlate = (b.inputBuf.copper_plate || 0) > 0;
+          if (hasIronPlate && hasCopperPlate) {
+            b.inputBuf.iron_plate--;
+            b.inputBuf.copper_plate--;
             b.prodTimer = 0;
-            // 将子弹存入相邻弹药箱，多余的进全局显示池
             const stored = storeAmmoNearby(b.x, b.y, 5);
+            // 弹药箱满或无相邻弹药箱时，多余子弹进全局显示计数
             GS.res.bullet = Math.max(0, GS.res.bullet + (5 - stored));
           } else {
-            b.prodTimer = 0.99; // 无原料等待
+            b.prodTimer = 0.99;
           }
         }
         break;
+      }
     }
   }
+
+  // 重建全局资源显示计数（从传送带+机器缓冲中统计，用于UI显示）
+  rebuildResDisplay();
+}
+
+// ── 统计全局资源显示数据（遍历所有传送带和机器缓冲） ──
+function rebuildResDisplay() {
+  const counts = { iron_ore:0, copper_ore:0, iron_plate:0, copper_plate:0, bullet:0 };
+  for (const b of GS.buildings) {
+    // 传送带上的物品
+    if (b.type === 'conveyor' && b.item) {
+      if (counts[b.item.type] !== undefined) counts[b.item.type]++;
+    }
+    // 机器输入缓冲
+    if (b.inputBuf) {
+      for (const [k, v] of Object.entries(b.inputBuf)) {
+        if (counts[k] !== undefined) counts[k] += v;
+      }
+    }
+    // 弹药箱
+    if (b.type === 'ammo_box') counts.bullet += b.ammo;
+  }
+  // 加上溢出的全局子弹（弹药箱满时溢出部分，仅用于显示）
+  counts.bullet += GS.res.bullet;
+  GS.res._display = counts;
 }
 
 /** 将子弹存入邻近弹药箱，返回实际存入量 */
@@ -1236,9 +1375,11 @@ function updateCoreHP() {
 }
 
 function updateResourceUI() {
-  for (const [k,v] of Object.entries(GS.res)) {
+  const display = GS.res._display || GS.res;
+  const keys = ['iron_ore','copper_ore','iron_plate','copper_plate','bullet'];
+  for (const k of keys) {
     const el = document.getElementById('res-'+k);
-    if (el) el.textContent = Math.floor(v);
+    if (el) el.textContent = Math.floor(display[k] || 0);
   }
 }
 
@@ -1325,6 +1466,7 @@ class GameScene extends Phaser.Scene {
     // 图层（按Z序）
     this.gfxGrid    = this.add.graphics().setDepth(0);  // 网格和路径（静态）
     this.gfxBuilding= this.add.graphics().setDepth(1);  // 建筑底色
+    this.gfxBelt    = this.add.graphics().setDepth(4);  // 传送带上的物品（建筑层之上）
     this.gfxEffect  = this.add.graphics().setDepth(5);  // 特效
     this.gfxEnemy   = this.add.graphics().setDepth(6);  // 敌人底圆
     this.gfxBullet  = this.add.graphics().setDepth(7);  // 子弹
@@ -1695,6 +1837,7 @@ class GameScene extends Phaser.Scene {
     if (this._hoverPreviewText) { this._hoverPreviewText.destroy(); this._hoverPreviewText=null; }
     // 清空图形
     this.gfxBuilding.clear();
+    this.gfxBelt.clear();
     this.gfxEnemy.clear();
     this.gfxBullet.clear();
     this.gfxEffect.clear();
@@ -1710,7 +1853,8 @@ class GameScene extends Phaser.Scene {
 
     if (GS.phase==='defense') {
       updateWave(dt);
-      updateProduction(dt);
+      updateConveyors(dt);   // 先推进传送带上的物品
+      updateProduction(dt);  // 矿节点产矿、机器加工
       updateEnemies(dt);
       updateDefense(dt);
     }
@@ -1727,13 +1871,60 @@ class GameScene extends Phaser.Scene {
     this.renderEnemies();
     this.renderBullets();
     this.renderEffects();
+    this.renderBeltItems();  // 传送带上的物品
 
     // 刷新建筑状态（血条、弹药等）
     for (const b of GS.buildings) this.refreshBuildingVisual(b);
 
-    // UI更新（节流：每10帧更新一次资源显示）
+    // UI更新（节流）
     if (Math.floor(time/100)%2===0) updateResourceUI();
     updateCoreHP();
+  }
+
+  // 资源类型 → 颜色（0xRRGGBB）
+  static get RES_COLORS() {
+    return {
+      iron_ore:    0x8B4513,
+      copper_ore:  0xCD7F32,
+      iron_plate:  0x8899AA,
+      copper_plate:0xB87333,
+      bullet:      0xFFD700,
+    };
+  }
+
+  /** 渲染传送带上的流动物品 */
+  renderBeltItems() {
+    const g = this.gfxBelt;
+    g.clear();
+    const colors = GameScene.RES_COLORS;
+
+    for (const b of GS.buildings) {
+      if (b.type !== 'conveyor' || !b.item) continue;
+
+      const item = b.item;
+      const progress = Math.min(item.progress, 1.0); // 0=格左/上端，1=格右/下端
+
+      // 根据传送带方向，计算物品在格子内的像素位置
+      // 物品从上游端（progress=0）移向下游端（progress=1）
+      const cx = b.x * CELL + CELL/2; // 格中心像素坐标
+      const cy = b.y * CELL + CELL/2;
+
+      // 上游方向（progress=0 时物品在上游侧）
+      const upDX = -DIR_DX[b.dir]; // 反向
+      const upDY = -DIR_DY[b.dir];
+
+      // 物品从上游侧中心 → 格中心 → 下游侧中心
+      // progress=0: 在格子上游边缘；progress=0.5: 在格中心；progress=1: 在格子下游边缘
+      const ox = cx + upDX * CELL/2 * (1 - progress*2); // progress=0 → +CELL/2; =0.5 → 0; =1 → -CELL/2
+      const oy = cy + upDY * CELL/2 * (1 - progress*2);
+
+      const col = colors[item.type] || 0xFFFFFF;
+      g.fillStyle(col, 1);
+      g.fillCircle(ox, oy, 7);
+      // 白色描边增加辨识度
+      g.lineStyle(1, 0xFFFFFF, 0.5);
+      g.strokeCircle(ox, oy, 7);
+    }
   }
 
   renderEnemies() {
