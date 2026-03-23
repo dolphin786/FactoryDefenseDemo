@@ -21,7 +21,7 @@ import { HoverRenderer }    from './renderer/HoverRenderer';
 import { HudManager }       from '../ui/HudManager';
 import { CardManager }      from '../ui/CardManager';
 import { DialogManager }    from '../ui/DialogManager';
-import { DebugPanel }       from '../ui/DebugPanel';
+
 import type { Building }    from '../model/Building';
 
 export class GameScene extends Phaser.Scene {
@@ -55,8 +55,6 @@ export class GameScene extends Phaser.Scene {
     this.hud     = new HudManager();
     this.dialog  = new DialogManager();
     this.cardMgr = new CardManager(card => this.selectCard(card));
-    new DebugPanel().init();
-
     // 渲染器初始化
     this.gridRenderer     = new GridRenderer(this, 0);
     this.buildingRenderer = new BuildingRenderer(this);

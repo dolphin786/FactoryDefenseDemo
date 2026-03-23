@@ -2,27 +2,80 @@ import Phaser from 'phaser';
 import { CANVAS_W, CANVAS_H } from './config/GameConfig';
 import { GameScene } from './scene/GameScene';
 
-// 全局场景引用，供 HTML 按钮调用
 let gameScene: GameScene | null = null;
 
-/**
- * Phaser 延迟到 DOM 完全渲染后再初始化。
- *
- * 原因：Electron 环境下 Phaser 如果在 DOMContentLoaded 前初始化，
- * 此时 #game-area 的 flex 布局还未完成，getBoundingClientRect() 返回 0，
- * Scale.FIT 计算出错，导致画布被压缩到 0 高度，游戏画面消失。
- *
- * 用 requestAnimationFrame 等一帧，确保浏览器完成首次布局后再启动 Phaser。
- */
+// ── 工具函数 ──────────────────────────────────────────────────
+
+function btn(id: string): HTMLElement | null {
+  return document.getElementById(id);
+}
+
+function updateSpeedBtns(spd: number): void {
+  ['btn-1x', 'btn-2x', 'btn-4x'].forEach(id => btn(id)?.classList.remove('active'));
+  const map: Record<number, string> = { 1: 'btn-1x', 2: 'btn-2x', 4: 'btn-4x' };
+  if (map[spd]) btn(map[spd])?.classList.add('active');
+  const pause = btn('btn-pause');
+  if (pause) pause.textContent = spd === 0 ? '▶继续' : 'II';
+}
+
+// ── DOM 事件绑定 ──────────────────────────────────────────────
+// 全部使用 addEventListener，不依赖 onclick= 字符串。
+// Vite 将 main.ts 打包为 ES Module，模块内变量不暴露到全局 window，
+// onclick="foo()" 这类写法在构建后找不到函数，导致所有按钮失效。
+
+function bindButtons(): void {
+  // 速度控制
+  btn('btn-pause')?.addEventListener('click', () => {
+    gameScene?.setTimeSpeed(0);
+    updateSpeedBtns(0);
+  });
+  btn('btn-1x')?.addEventListener('click', () => { gameScene?.setTimeSpeed(1); updateSpeedBtns(1); });
+  btn('btn-2x')?.addEventListener('click', () => { gameScene?.setTimeSpeed(2); updateSpeedBtns(2); });
+  btn('btn-4x')?.addEventListener('click', () => { gameScene?.setTimeSpeed(4); updateSpeedBtns(4); });
+
+  // 开始防御
+  btn('start-btn')?.addEventListener('click', () => gameScene?.startDefense());
+
+  // 传送带工具
+  btn('belt-btn')?.addEventListener('click',        () => gameScene?.activateTool('conveyor'));
+  btn('splitter-btn')?.addEventListener('click',    () => gameScene?.activateTool('splitter'));
+  btn('underground-btn')?.addEventListener('click', () => gameScene?.activateTool('underground'));
+
+  // Debug 面板开关
+  btn('debug-btn')?.addEventListener('click', () => {
+    const panel = btn('debug-panel');
+    const dbgBtn = btn('debug-btn');
+    if (!panel || !dbgBtn) return;
+    const showing = panel.classList.toggle('show');
+    dbgBtn.style.background = showing ? '#27AE60' : '';
+    dbgBtn.style.color      = showing ? '#000'    : '';
+  });
+
+  // Debug 清空日志
+  btn('debug-clear-btn')?.addEventListener('click', () => {
+    const el = btn('debug-log');
+    if (el) el.innerHTML = '';
+  });
+
+  // Debug 过滤按钮
+  document.querySelectorAll<HTMLElement>('.df-btn').forEach(filterBtn => {
+    filterBtn.addEventListener('click', () => {
+      const tag = filterBtn.dataset['tag'];
+      if (!tag) return;
+      filterBtn.classList.toggle('on');
+      const visible = filterBtn.classList.contains('on');
+      document.querySelectorAll<HTMLElement>(`#debug-log .dl.${tag}`).forEach(line => {
+        line.style.display = visible ? '' : 'none';
+      });
+    });
+  });
+}
+
+// ── Phaser 初始化 ─────────────────────────────────────────────
+// requestAnimationFrame 确保 flex 布局完成后再初始化，
+// 避免 Electron 下 #game-area 高度为 0 导致画布不显示。
+
 function initPhaser(): void {
-  const gameArea = document.getElementById('game-area');
-  if (!gameArea) return;
-
-  // 等浏览器完成布局，读取 #game-area 的实际可用高度
-  const rect = gameArea.getBoundingClientRect();
-  const availW = rect.width  || window.innerWidth;
-  const availH = rect.height || (window.innerHeight - 152); // 152 = top+resource+card bar
-
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     width: CANVAS_W,
@@ -35,73 +88,26 @@ function initPhaser(): void {
       autoCenter: Phaser.Scale.CENTER_BOTH,
       width: CANVAS_W,
       height: CANVAS_H,
-      // 明确告知 Scale Manager 可用区域大小，避免依赖 DOM 动态查询
-      parent: 'game-area',
     },
   });
 
-  // 窗口尺寸变化时强制刷新 Scale（Electron 窗口拖拽缩放时需要）
-  window.addEventListener('resize', () => {
-    game.scale.refresh();
-  });
+  window.addEventListener('resize', () => game.scale.refresh());
 
-  // Phaser 启动后捕获场景引用
   game.events.on('ready', () => {
     gameScene = game.scene.getScene('GameScene') as GameScene;
-    // 启动后再刷新一次，确保画布尺寸正确
     game.scale.refresh();
   });
-
-  // 消除 TypeScript 对 availW/availH 未使用的警告
-  void availW; void availH;
 }
 
-// DOM 完全渲染后（包括 CSS 布局）再初始化 Phaser
-// DOMContentLoaded 之后用 requestAnimationFrame 再等一帧确保 flex 布局完成
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(initPhaser));
-} else {
+// ── 启动 ─────────────────────────────────────────────────────
+
+function start(): void {
+  bindButtons();
   requestAnimationFrame(initPhaser);
 }
 
-// 将需要 HTML 按钮调用的函数挂到 window
-const w = window as unknown as Record<string, unknown>;
-w['startDefense']  = () => gameScene?.startDefense();
-w['toggleBeltMode']= () => gameScene?.toggleBeltMode();
-w['activateTool']  = (tool: string) => gameScene?.activateTool(tool as 'conveyor' | 'splitter' | 'underground');
-w['setSpeed']      = (spd: number) => {
-  gameScene?.setTimeSpeed(spd);
-  updateSpeedBtns(spd);
-};
-w['toggleDebug']   = () => {
-  const panel = document.getElementById('debug-panel');
-  const btn   = document.getElementById('debug-btn');
-  if (!panel || !btn) return;
-  const showing = panel.classList.toggle('show');
-  btn.style.background = showing ? '#27AE60' : '';
-  btn.style.color      = showing ? '#000'    : '';
-};
-w['clearDebugLog'] = () => {
-  const el = document.getElementById('debug-log');
-  if (el) el.innerHTML = '';
-};
-w['toggleFilter']  = (btn: HTMLElement) => {
-  const tag = btn.dataset['tag'];
-  if (!tag) return;
-  btn.classList.toggle('on');
-  const el = document.getElementById('debug-log');
-  if (!el) return;
-  const visible = btn.classList.contains('on');
-  for (const line of el.querySelectorAll<HTMLElement>(`.dl.${tag}`)) {
-    line.style.display = visible ? '' : 'none';
-  }
-};
-
-function updateSpeedBtns(spd: number): void {
-  ['btn-1x', 'btn-2x', 'btn-4x'].forEach(id =>
-    document.getElementById(id)?.classList.remove('active'));
-  const map: Record<number, string> = { 1: 'btn-1x', 2: 'btn-2x', 4: 'btn-4x' };
-  if (map[spd]) document.getElementById(map[spd])?.classList.add('active');
-  const pause = document.getElementById('btn-pause');
-  if (pause) pause.textContent = spd === 0 ? '▶继续' : '⏸暂停';
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', start);
+} else {
+  start();
 }

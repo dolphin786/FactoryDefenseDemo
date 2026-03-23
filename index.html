@@ -543,11 +543,11 @@ body {
       <span id="phase-badge" class="prepare">PREPARE</span>
     </div>
     <div id="speed-controls">
-      <button class="px-btn" id="btn-pause" onclick="setSpeed(0)">II</button>
-      <button class="px-btn active" id="btn-1x" onclick="setSpeed(1)">1X</button>
-      <button class="px-btn" id="btn-2x" onclick="setSpeed(2)">2X</button>
-      <button class="px-btn" id="btn-4x" onclick="setSpeed(4)">4X</button>
-      <button class="px-btn" id="debug-btn" onclick="toggleDebug()" style="color:#39ff14;border-color:#39ff14">DBG</button>
+      <button class="px-btn" id="btn-pause">II</button>
+      <button class="px-btn active" id="btn-1x">1X</button>
+      <button class="px-btn" id="btn-2x">2X</button>
+      <button class="px-btn" id="btn-4x">4X</button>
+      <button class="px-btn" id="debug-btn" style="color:#39ff14;border-color:#39ff14">DBG</button>
     </div>
   </div>
 
@@ -585,11 +585,11 @@ body {
 
   <!-- ── 卡牌栏 ── -->
   <div id="card-bar">
-    <button id="belt-btn"        onclick="activateTool('conveyor')">BELT<br>&gt;&gt;</button>
-    <button id="splitter-btn"    onclick="activateTool('splitter')">SPLIT<br>⑂</button>
-    <button id="underground-btn" onclick="activateTool('underground')">UGND<br>▼▲</button>
+    <button id="belt-btn">BELT<br>&gt;&gt;</button>
+    <button id="splitter-btn">SPLIT<br>⑂</button>
+    <button id="underground-btn">UGND<br>▼▲</button>
     <div id="hand-cards" style="display:flex;gap:6px;align-items:center;"></div>
-    <button id="start-btn" onclick="startDefense()">[ START<br>DEFENSE ]</button>
+    <button id="start-btn">[ START<br>DEFENSE ]</button>
   </div>
 
 </div><!-- /#game-container -->
@@ -603,15 +603,15 @@ body {
 <div id="debug-panel">
   <div id="debug-header">
     <span>&gt; BELT DEBUG LOG</span>
-    <button onclick="clearDebugLog()">CLR</button>
+    <button id="debug-clear-btn">CLR</button>
   </div>
   <div id="debug-filter">
-    <button class="df-btn on" data-tag="belt"  onclick="toggleFilter(this)">BELT</button>
-    <button class="df-btn on" data-tag="prod"  onclick="toggleFilter(this)">PROD</button>
-    <button class="df-btn on" data-tag="ammo"  onclick="toggleFilter(this)">AMMO</button>
-    <button class="df-btn on" data-tag="tower" onclick="toggleFilter(this)">TOWER</button>
-    <button class="df-btn on" data-tag="warn"  onclick="toggleFilter(this)">WARN</button>
-    <button class="df-btn on" data-tag="info"  onclick="toggleFilter(this)">INFO</button>
+    <button class="df-btn on" data-tag="belt">BELT</button>
+    <button class="df-btn on" data-tag="prod">PROD</button>
+    <button class="df-btn on" data-tag="ammo">AMMO</button>
+    <button class="df-btn on" data-tag="tower">TOWER</button>
+    <button class="df-btn on" data-tag="warn">WARN</button>
+    <button class="df-btn on" data-tag="info">INFO</button>
   </div>
   <div id="debug-log"></div>
 </div>
