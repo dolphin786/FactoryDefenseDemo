@@ -165,7 +165,6 @@ export class ConveyorSystem {
 
     // 分流器锚点格：进 item 槽
     if (tb.type === 'splitter') {
-      if (!this.isSplitterInputPort(gs, tb, tx, ty)) return false;
       if (tb.item == null) {
         tb.item = { type: item.type, progress: 0, qty: item.qty ?? 1 };
         return true;
@@ -173,17 +172,31 @@ export class ConveyorSystem {
       return false;
     }
 
-    // 分流器 body 格：进 item 槽（由 anchor 同步到 itemB）
+    // multiblock_body 格：找到锚点，按锚点类型决定如何处理
     if (tb.type === 'multiblock_body') {
-      if (!this.isBodyInputPort(gs, tb, tx, ty)) return false;
-      if (tb.item == null) {
-        tb.item = { type: item.type, progress: 0, qty: item.qty ?? 1 };
-        return true;
+      if (tb.anchorId == null) return false;
+      const anchor = gs.buildings.find(b => b.id === tb.anchorId);
+      if (!anchor) return false;
+
+      // 分流器 body 格：进 body.item 槽（由 tickSplitter 同步到 anchor.itemB）
+      if (anchor.type === 'splitter') {
+        if (tb.item == null) {
+          tb.item = { type: item.type, progress: 0, qty: item.qty ?? 1 };
+          return true;
+        }
+        return false;
       }
+
+      // 其他多格机器（furnace/assembler 等）的 body 格：
+      // 料统一推入锚点的 inputBuf，支持多方向进料
+      if (RECIPE_MAP.has(anchor.type)) {
+        return this.pushToMachineInput(gs, anchor, item.type, tx, ty);
+      }
+
       return false;
     }
 
-    // 机器 inputBuf（根据 inputPorts 配置判断是否接受）
+    // 机器锚点格：推入 inputBuf
     if (RECIPE_MAP.has(tb.type)) {
       return this.pushToMachineInput(gs, tb, item.type, tx, ty);
     }
@@ -197,20 +210,6 @@ export class ConveyorSystem {
     }
 
     return false;
-  }
-
-  /**
-   * 判断物品进入分流器锚点格的方向是否对准输入端口。
-   * 输入方向 = 物品来自的方向（即推出方传送带的 dir）。
-   * 这里用"目标格从哪个方向被进入"来判断。
-   * 简化：传送带物品到达分流器任意方向都接受（输入端口由放置方向保证）。
-   */
-  private isSplitterInputPort(_gs: GameState, _anchor: Building, _tx: number, _ty: number): boolean {
-    return true; // 简化：不做端口方向校验，由玩家保证放置合理
-  }
-
-  private isBodyInputPort(_gs: GameState, _body: Building, _tx: number, _ty: number): boolean {
-    return true;
   }
 
   private pushToMachineInput(_gs: GameState, machine: Building, resType: ResourceType, tx: number, ty: number): boolean {
