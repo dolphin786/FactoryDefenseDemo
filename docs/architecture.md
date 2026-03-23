@@ -1,658 +1,603 @@
 # 系统架构与代码运行原理
 
-本文档从入口开始，逐层解释游戏代码的执行流程和架构设计。
+> 本文档与当前代码保持同步（branch: feature/data-driven）。  
+> 如果你在阅读中发现和代码不一致，以代码为准。
 
 ---
 
 ## 目录
 
-1. [整体架构图](#1-整体架构图)
-2. [入口：main.ts](#2-入口maints)
-3. [游戏启动流程](#3-游戏启动流程)
-4. [每帧主循环](#4-每帧主循环)
-5. [五大系统详解](#5-五大系统详解)
-6. [数据模型层](#6-数据模型层)
-7. [配置层](#7-配置层)
-8. [渲染层](#8-渲染层)
-9. [UI 层](#9-ui-层)
-10. [工具层](#10-工具层)
-11. [数据流向总览](#11-数据流向总览)
-12. [关键设计决策](#12-关键设计决策)
+1. [目录结构](#1-目录结构)
+2. [整体分层架构](#2-整体分层架构)
+3. [入口：`main.ts`](#3-入口-maints)
+4. [游戏启动流程](#4-游戏启动流程)
+5. [每帧主循环](#5-每帧主循环)
+6. [Config 层：静态数据](#6-config-层静态数据)
+7. [Model 层：运行时状态](#7-model-层运行时状态)
+8. [System 层：游戏逻辑](#8-system-层游戏逻辑)
+9. [Scene / Renderer 层：视觉](#9-scene--renderer-层视觉)
+10. [UI 层：DOM 操作](#10-ui-层dom-操作)
+11. [Utils 层：工具函数](#11-utils-层工具函数)
+12. [关键机制详解](#12-关键机制详解)
+13. [数据流向总览](#13-数据流向总览)
 
 ---
 
-## 1. 整体架构图
+## 1. 目录结构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  index.html  (UI 布局 + 样式)                               │
-│    ├── 顶部信息栏、资源栏、卡牌栏                            │
-│    └── <script type="module" src="/src/main.ts">            │
-└─────────────────────────────────────────────────────────────┘
-                          │ Vite 构建
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  src/main.ts  (入口)                                        │
-│    └── new Phaser.Game → 挂载 GameScene                     │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  GameScene  (总控制器 / Composition Root)                   │
-│                                                             │
-│  ┌──────────┐  ┌──────────────┐  ┌────────────────────┐    │
-│  │ GameState│  │   5 Systems  │  │   6 Renderers      │    │
-│  │  (数据)  │  │  (逻辑)      │  │   (视觉)           │    │
-│  └──────────┘  └──────────────┘  └────────────────────┘    │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  4 UI Managers  (DOM 操作)                          │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                          │
-         ┌────────────────┴────────────────┐
-         ▼                                 ▼
-┌─────────────────┐               ┌─────────────────┐
-│  src/config/    │               │  src/model/     │
-│  （静态数据）    │               │  （运行时数据）   │
-└─────────────────┘               └─────────────────┘
+src/
+├── main.ts                  入口，启动 Phaser，暴露 window 接口
+├── config/                  静态配置（纯数据，无逻辑）
+│   ├── MapConfig.ts           地图尺寸、格子大小、敌人路径
+│   ├── BalanceConfig.ts       平衡数值（速度、伤害、倍率）
+│   ├── BuildingConfig.ts      建筑类型、外观、多格布局、端口
+│   ├── EnemyConfig.ts         敌人属性、AI行为标签
+│   ├── RecipeConfig.ts        生产配方（输入→输出）
+│   ├── CardConfig.ts          卡牌元数据（稀有度、解锁条件）
+│   ├── LevelConfig.ts         关卡波次、起始卡组、奖励池
+│   └── GameConfig.ts          重导出文件（向后兼容）
+├── model/                   运行时数据（只有数据和简单CRUD）
+│   ├── Building.ts            单个建筑对象
+│   ├── Enemy.ts               单个敌人对象
+│   ├── Card.ts                卡牌数据
+│   └── GameState.ts           游戏全局状态（网格、手牌、波次…）
+├── system/                  游戏逻辑（读Config，改Model）
+│   ├── ConveyorSystem.ts      传送带/分流器/地下带流动
+│   ├── ProductionSystem.ts    矿节点产矿、机器加工
+│   ├── EnemySystem.ts         敌人AI（移动、攻击）
+│   ├── DefenseSystem.ts       炮塔攻击
+│   └── WaveSystem.ts          波次管理
+├── scene/                   Phaser 场景（协调所有层）
+│   ├── GameScene.ts           主场景（Composition Root）
+│   └── renderer/              各视觉层渲染器
+│       ├── GridRenderer.ts      网格底图 + 敌人路径
+│       ├── BuildingRenderer.ts  建筑底色 + 图标 + 血条
+│       ├── EnemyRenderer.ts     敌人圆形 + 血条
+│       ├── BeltRenderer.ts      传送带上流动的资源点
+│       ├── EffectRenderer.ts    子弹飞行 + 爆炸特效
+│       ├── HoverRenderer.ts     鼠标悬停预览（含多格建筑）
+│       └── PixelIcons.ts        纯 Phaser Graphics 像素图标库
+├── ui/                      DOM UI 管理
+│   ├── HudManager.ts          顶部信息栏（核心HP、波次）
+│   ├── CardManager.ts         手牌栏渲染和点击
+│   ├── DialogManager.ts       弹窗（选卡组、胜利、失败）
+│   └── DebugPanel.ts          Debug 日志面板
+└── utils/                   工具函数
+    ├── GridUtils.ts           格子路径计算、障碍检测
+    ├── MultiBlockUtils.ts     多格建筑旋转/占用格计算
+    └── DebugLogger.ts         带节流的日志工具
+```
+
+---
+
+## 2. 整体分层架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  index.html  (HTML结构 + CSS像素风样式)                       │
+│    └── <script type="module" src="/src/main.ts">             │
+└────────────────────────────┬─────────────────────────────────┘
+                             │ Vite 热更新构建
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│  main.ts  (入口)                                             │
+│    ├── new Phaser.Game → 挂载 GameScene                      │
+│    └── window.startDefense / activateTool / setSpeed …      │
+└────────────────────────────┬─────────────────────────────────┘
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│  GameScene  (Composition Root，协调所有层)                    │
+│  ┌──────────┐  ┌────────────────────┐  ┌─────────────────┐  │
+│  │GameState │  │  5 Systems（逻辑）  │  │ 6 Renderers（视觉）│ │
+│  │（数据）  │  │  Conveyor          │  │ Grid            │  │
+│  │  grid    │  │  Production        │  │ Building        │  │
+│  │  enemies │  │  Enemy             │  │ Enemy           │  │
+│  │  hand    │  │  Defense           │  │ Belt            │  │
+│  │  wave…   │  │  Wave              │  │ Effect / Hover  │  │
+│  └──────────┘  └────────────────────┘  └─────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐   │
+│  │  4 UI Managers (DOM)                                 │   │
+│  │  Hud / Card / Dialog / Debug                         │   │
+│  └───────────────────────────────────────────────────────┘   │
+└────────────────────────────┬─────────────────────────────────┘
+            ┌────────────────┴──────────────────┐
+            ▼                                   ▼
+┌──────────────────┐                 ┌──────────────────┐
+│  src/config/     │                 │  src/model/      │
+│  （只读静态数据）  │                 │  （运行时可变状态）│
+└──────────────────┘                 └──────────────────┘
 ```
 
 **分层原则：**
-
-- **Config 层** — 纯数据，无逻辑，可随时修改
-- **Model 层** — 运行时状态，只包含数据和简单的 CRUD 方法
-- **System 层** — 游戏逻辑，读取 Config + 修改 Model
-- **Renderer 层** — 将 Model 的状态转化为 Phaser 视觉
-- **UI 层** — 将 Model 的状态转化为 DOM 元素
-- **GameScene** — 唯一知道所有层的组合根，协调一切
+- **Config** 纯数据，任何人可读，无人修改
+- **Model** 运行时状态，只有简单的 CRUD 方法
+- **System** 游戏逻辑，只读 Config，只改 Model
+- **Renderer** 只读 Model，只写 Phaser 对象
+- **UI** 只读 Model，只写 DOM
+- **GameScene** 唯一了解所有层的协调者，接受输入事件并分发
 
 ---
 
-## 2. 入口：`main.ts`
+## 3. 入口 `main.ts`
 
 ```
 浏览器加载 index.html
-  → <script type="module" src="/src/main.ts">
-  → Vite 编译 TypeScript → 执行 main.ts
+  → Vite 加载 /src/main.ts
+  → 编译 TypeScript → 执行
 ```
 
-`main.ts` 做三件事：
+做三件事：
 
-### 2.1 启动 Phaser
-
+**① 启动 Phaser**
 ```ts
 const game = new Phaser.Game({
-  width: CANVAS_W,   // 500px（10格 × 50px）
-  height: CANVAS_H,  // 500px
-  parent: 'game-area',
+  width: CANVAS_W,   // 768px（32格 × 24px）
+  height: CANVAS_H,
   scene: [GameScene],
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
 });
 ```
+Phaser 创建 WebGL 渲染器，挂到 `#game-area`，自动调用 `GameScene.create()`。
 
-Phaser 创建一个 WebGL（或 Canvas）渲染器，挂载到 `#game-area` 元素内，然后自动调用 `GameScene.create()`。
-
-### 2.2 捕获场景引用
-
+**② 捕获场景引用**
 ```ts
 game.events.on('ready', () => {
   gameScene = game.scene.getScene('GameScene') as GameScene;
 });
 ```
 
-Phaser 的 `ready` 事件在所有场景初始化完成后触发。之后 `gameScene` 就是可调用的场景实例。
-
-### 2.3 将函数挂到 `window`
-
+**③ 暴露 window 接口**（供 HTML 按钮调用）
 ```ts
-w['startDefense']   = () => gameScene?.startDefense();
-w['toggleBeltMode'] = () => gameScene?.toggleBeltMode();
-w['setSpeed']       = (spd) => { gameScene?.setTimeSpeed(spd); updateSpeedBtns(spd); };
+window.startDefense  = () => gameScene?.startDefense();
+window.activateTool  = (tool) => gameScene?.activateTool(tool);
+window.setSpeed      = (spd) => gameScene?.setTimeSpeed(spd);
+window.toggleDebug   = () => ...;
 ```
-
-HTML 中的按钮使用 `onclick="startDefense()"` 这样的行内事件，需要在 `window` 上能找到这些函数。这是连接 DOM UI 和 TypeScript 游戏逻辑的桥梁。
+HTML 里的 `onclick="startDefense()"` 最终调用的就是这里。
 
 ---
 
-## 3. 游戏启动流程
+## 4. 游戏启动流程
 
 ```
 GameScene.create()
-  │
-  ├─ 初始化 UI 管理器（HudManager, CardManager, DialogManager, DebugPanel）
-  │
-  ├─ 初始化渲染器（GridRenderer, BuildingRenderer, BeltRenderer,
-  │                EffectRenderer, EnemyRenderer, HoverRenderer）
-  │
-  ├─ 注册输入事件（pointerdown, pointermove, keydown-R）
-  │
-  └─ startNewGame(1)
-       │
-       ├─ resetCardId()         // 卡牌 ID 从 1 重新计数
-       ├─ new GameState(1)      // 创建第 1 关的游戏状态
-       ├─ initSystems()         // 创建 5 个 System 实例，注入回调
-       ├─ resetScene(false)     // 清空渲染器，绘制网格，放置核心建筑
-       └─ dialog.showStarterDeckDialog()  // 弹出起始卡组选择弹窗
+  ├── 创建所有 Renderer（Grid/Building/Enemy/Belt/Effect/Hover）
+  ├── 创建所有 UI Manager（Hud/Card/Dialog/Debug）
+  ├── 绑定输入（pointerdown / pointermove / keydown-R）
+  └── startNewGame(level=1)
+        ├── new GameState(1)          创建空游戏状态
+        ├── initSystems()             创建5个System实例（注入回调）
+        ├── resetScene(false)         绘制网格、放置核心建筑
+        └── dialog.showStarterDeckDialog()   弹出选卡弹窗
+              └── 玩家选择后 onDeckPicked(idx)
+                    ├── CardConfig 查询 cardId → CardData
+                    └── gs.hand = 选中的卡牌列表
 ```
 
-### 关键：`initSystems()` 的依赖注入
+---
 
+## 5. 每帧主循环
+
+`GameScene.update(time, delta)` 每帧调用：
+
+```
+dt = (delta / 1000) * gs.timeSpeed   // 实际经过秒数（含加速）
+
+if (phase === 'prepare'):
+  // 只跑传送带动画，不生产
+  conveyorSys.update(gs, dt)
+
+if (phase === 'defense'):
+  conveyorSys.update(gs, dt)    ← 传送带物品流动
+  productionSys.update(gs, dt)  ← 矿节点/熔炉/组装机
+  waveSys.update(gs, dt)        ← 波次倒计时/敌人生成
+  enemySys.update(gs, dt)       ← 敌人AI
+  defenseSys.update(gs, dt)     ← 炮塔攻击
+
+// 始终执行（包括 result 阶段）
+effectRenderer.update(dt)       ← 子弹/爆炸动画推进
+beltRenderer.render(gs.buildings)
+enemyRenderer.render(gs.enemies)
+effectRenderer.render()
+for b in gs.buildings: buildingRenderer.refresh(b)  ← 血条/弹药数刷新
+hud.updateCoreHp(gs)
+if (每100ms): hud.updateResources / updateTopBar
+```
+
+注意：`paused=true` 或 `gameOver=true` 时直接 return，不执行任何更新。
+
+---
+
+## 6. Config 层：静态数据
+
+所有配置文件都是**纯 TypeScript 常量**，不含任何逻辑，可以随时修改数值。
+
+### `MapConfig.ts`
 ```ts
-private initSystems(): void {
-  this.conveyorSys   = new ConveyorSystem();
-  this.productionSys = new ProductionSystem();
+CELL   = 24         // 每格像素
+GRID_W = 32         // 网格宽
+GRID_H = 32         // 网格高
+CORE_X = 29, CORE_Y = 22   // 核心位置
+ENEMY_PATH = [{x,y}, ...]   // 敌人路径节点列表
+```
 
-  this.enemySys = new EnemySystem(
-    damage => this.onCoreAttacked(damage),      // 核心受攻击时的回调
-    b      => this.onBuildingDestroyed(b),      // 建筑被摧毁时的回调
-  );
+### `BalanceConfig.ts`
+所有可调平衡数值的唯一来源：
+```ts
+BELT_SPEED = 1.5           // 传送带格/秒
+TOWER_STATS = { range, damagePerShot, fireRate }
+CORE_MAX_HEALTH = 200
+CORE_CONTACT_DAMAGE = 5    // 敌人攻击核心时的反伤
+ENEMY_SCALE = { healthMultiplier, speedMultiplier, damageMultiplier }
+```
 
-  this.defenseSys = new DefenseSystem(
-    (fx, fy, tx, ty) => this.effectRenderer.spawnBullet(fx, fy, tx, ty),  // 子弹动画
-  );
+### `BuildingConfig.ts`
+每种建筑类型的完整定义，包括**多格建筑布局**：
+```ts
+interface BuildingCfg {
+  hp, emoji, color, name, desc  // 基础属性
+  cells?: CellDef[]             // 多格建筑格子布局（旋转前坐标）
+  inputPorts?: PortDef[]        // 输入端口（传送带从哪个方向喂料）
+  outputPort?: PortDef          // 输出端口（产物推向哪个方向）
+}
 
-  this.waveSys = new WaveSystem(
-    waveNum => this.showWaveAnnounce(`第 ${waveNum} 波来袭！`),
-    type    => this.enemySys.spawnEnemy(this.gs, type),
-    ()      => this.triggerVictory(),
-    secs    => this.hud.showCountdown(secs),
-  );
+interface CellDef {
+  dx: number   // 相对锚点列偏移（旋转前）
+  dy: number   // 相对锚点行偏移（旋转前）
+  role: 'anchor' | 'body'
 }
 ```
 
-每个 System 通过构造函数接收回调，**不直接引用 `GameScene`**。这样 System 只依赖 `GameState`，与渲染和 UI 完全解耦，方便单独测试。
-
----
-
-## 4. 每帧主循环
-
-Phaser 每帧调用 `GameScene.update(time, delta)`，`delta` 是距上帧的毫秒数。
-
+**分流器配置示例：**
 ```ts
-update(_time: number, delta: number): void {
-  if (!this.gs || this.gs.paused || this.gs.gameOver) return;
-
-  // dt = 本帧实际经过的游戏秒数（已乘时间倍率）
-  const dt = (delta / 1000) * this.gs.timeSpeed;
-
-  // 准备阶段：只跑传送带动画（不生产）
-  if (this.gs.phase === 'prepare') {
-    this.conveyorSys.update(this.gs, dt);
-  }
-
-  // 防御阶段：完整流水线
-  if (this.gs.phase === 'defense') {
-    this.conveyorSys.update(this.gs, dt);   // ① 传送带物品流动
-    this.productionSys.update(this.gs, dt); // ② 机器生产
-    this.waveSys.update(this.gs, dt);       // ③ 波次管理
-    this.enemySys.update(this.gs, dt);      // ④ 敌人移动/攻击
-    this.defenseSys.update(this.gs, dt);    // ⑤ 炮塔射击
-  }
-
-  // 特效动画（始终更新）
-  this.effectRenderer.update(dt);
-
-  // 渲染（每帧全量重绘动态元素）
-  this.beltRenderer.render(this.gs.buildings);
-  this.enemyRenderer.render(this.gs.enemies);
-  this.effectRenderer.render();
-  for (const b of this.gs.buildings) this.buildingRenderer.refresh(b);
-
-  // UI 节流更新（每隔约 200ms）
-  if (Math.floor(_time / 100) % 2 === 0) {
-    this.hud.updateResources(this.gs);
-    this.hud.updateTopBar(this.gs);
-  }
-  this.hud.updateCoreHp(this.gs);
+splitter: {
+  cells: [
+    { dx:0, dy:0, role:'anchor' },  // 上格（主格）
+    { dx:0, dy:1, role:'body'   },  // 下格
+  ],
+  inputPorts:  [{ cellDx:0, cellDy:0, relDir:2 },   // 上格后方
+                { cellDx:0, cellDy:1, relDir:2 }],  // 下格后方
+  outputPort:  { cellDx:0, cellDy:0, relDir:0 },    // 上格前方
 }
 ```
 
-**更新顺序的设计意图：**
+### `RecipeConfig.ts`
+所有生产配方，配方驱动 `ProductionSystem`：
+```ts
+{ buildingType: 'furnace',
+  variants: [
+    { inputs:{iron_ore:1},   outputs:{iron_plate:1} },
+    { inputs:{copper_ore:1}, outputs:{copper_plate:1} },
+  ],
+  cycleTime: 2,
+  accepts: ['iron_ore','copper_ore'] }
+```
 
-1. 传送带先于生产更新 — 这帧推进物品，下帧机器才能看到新物品
-2. 生产先于波次 — 让工厂有机会在敌人到来前积累弹药
-3. 波次先于敌人 — 先触发新敌人生成，再让所有敌人移动
-4. 敌人先于防御 — 敌人移动到新位置后，炮塔才能精确瞄准
+### `CardConfig.ts`
+卡牌元数据。奖励池和起始卡组用 `cardId` 引用：
+```ts
+{ cardId: 'gun_tower', type: 'defense', buildingType: 'gun_tower',
+  rarity: 'uncommon',
+  unlock: { type: 'always' } }
+```
+
+### `LevelConfig.ts`
+- `LEVEL_CONFIGS[]` — 每关波次配置 + per-level 奖励池（带权重）
+- `STARTER_DECKS[]` — 三套起始卡组（用 `cardId[]` 列表描述）
 
 ---
 
-## 5. 五大系统详解
+## 7. Model 层：运行时状态
 
-### 5.1 ConveyorSystem — 传送带流动
+### `Building`
+```ts
+class Building {
+  id, x, y, type, dir       // 基础位置和类型
+  health, maxHealth          // 当前/最大血量
+  sourceCard                 // 放置它的手牌（移除时归还）
 
-**职责：** 每帧推进传送带上物品的 `progress`（0→1），到达 1 时推入下游。
+  // 传送带
+  item: BeltItem | null      // 本格的传输槽（progress 0→1）
+  itemB: BeltItem | null     // 分流器副槽（由 splitter 锚点管理）
+  outToggle: number          // 分流器输出轮换（0/1）
 
-```
-传送带格子数据结构：
-  Building {
-    type: 'conveyor',
-    dir: 0|1|2|3,        // 0=右 1=下 2=左 3=上
-    item: {              // null = 空，有物品时 = BeltItem
-      type: 'iron_ore',
-      progress: 0.0~1.0, // 物品在本格的传输进度
-      qty: 1,            // 批量数量（子弹为5）
-    }
-  }
+  // 多格建筑
+  anchorId: number | null    // 副格（multiblock_body）指向锚点id
 
-每帧执行（倒序遍历，末端优先）：
-  b.item.progress += BELT_SPEED × dt
+  // 地下传送带
+  pairId: number | null      // in↔out 配对
 
-  当 progress >= 1.0 时，尝试 tryPushItem(item, 下游格):
-    → 下游是传送带且为空：item 移入下游，本格清空
-    → 下游是机器（有配方）：调用 pushToMachineInput，加入 inputBuf
-    → 下游是弹药箱且 item.type === 'bullet'：直接存入 ammo
-    → 其他情况（满/不接受）：progress 锁定在 1.0，等待（背压）
-```
+  // 机器
+  prodTimer, lastOutput, inputBuf
 
-**背压机制：** 下游满时上游自动停止，不丢弃物品。这是传送带系统的核心特性，让整条生产线自然限速。
+  // 炮塔
+  fireCooldown, noAmmo
 
-### 5.2 ProductionSystem — 机器生产
-
-**职责：** 矿节点产矿，加工机器按配方消耗 `inputBuf` 并输出产物到传送带。
-
-```
-矿节点（iron_ore_node / copper_ore_node）：
-  每秒尝试向 b.dir 方向的传送带格放入一个矿石
-  如果传送带满：等待（背压，计时器不消耗）
-
-加工机器（furnace / assembler）：
-  1. b.prodTimer += dt
-  2. 当 prodTimer >= recipe.cycleTime 时执行生产：
-     a. selectVariant(recipe, b)：
-        - 单配方：检查 inputBuf 是否有足够原料
-        - 多配方（熔炉）：优先选上次未执行的 variant（交替策略）
-     b. 扣减 inputBuf 中的原料
-     c. 尝试将产物推入 b.dir 方向的传送带
-        - 成功：prodTimer = 0，等待下个周期
-        - 失败（传送带满）：还原原料，prodTimer = cycleTime-0.01，下帧重试
+  // 弹药箱
+  ammo, ammoMax
+}
 ```
 
-所有配方从 `RecipeConfig.RECIPE_MAP` 读取，`ProductionSystem` 本身不含任何配方数据。
-
-### 5.3 EnemySystem — 敌人 AI
-
-**职责：** 敌人生成、沿路径移动、遇到建筑停下攻击、到达核心攻击核心。
-
-```
-敌人数据：
-  Enemy {
-    gx, gy: 格坐标（浮点，表示当前精确位置）
-    pathIndex: 下一个目标路径节点索引
-    state: 'moving' | 'attacking' | 'dead'
-    target: Building | 'core' | null
-  }
-
-moveEnemy() 每帧：
-  1. 调用 findBlockingBuilding() 扫描当前路径段上的阻挡建筑
-     → 有：切换 state = 'attacking'，target = 阻挡建筑
-  2. 没有阻挡：向 ENEMY_PATH[pathIndex] 移动（线性插值）
-  3. 到达路径节点：pathIndex++
-     → pathIndex >= 路径长度：切换为攻击核心
-
-attackEnemy() 每帧：
-  1. atkCooldown -= dt
-  2. 当 atkCooldown <= 0 时攻击目标：
-     → target = 'core'：对 gs.coreHealth 扣血，触发 onCoreAttacked 回调
-     → target = Building：building.takeDamage(damage)
-        - 建筑血量 <= 0：destroyBuilding()，触发 onBuildingDestroyed 回调，
-          切回 moving 状态继续前进
-  3. 检查 target 建筑是否还存在（可能被炮塔先打死），若不存在则继续移动
-```
-
-**关键：** `findBlockingBuilding()`（在 `GridUtils.ts`）逐格扫描当前路径段，不只检查节点，确保路径中间放的建筑也能被检测到。
-
-### 5.4 DefenseSystem — 炮塔射击
-
-**职责：** 每帧检查机枪塔状态，寻找射程内目标并射击。
-
-```
-updateTower() 每帧：
-  1. fireCooldown -= dt
-  2. 检查相邻4格是否有弹药箱且 ammo > 0
-     → 没有：noAmmo = true，返回（不射击）
-  3. fireCooldown > 0：返回（冷却中）
-  4. pickTarget()：找射程内存活敌人
-     → 优先 pathIndex 最大的（最接近核心）
-     → pathIndex 相同时取距核心最近的
-  5. 消耗弹药：ammoBox.ammo--，fireCooldown = TOWER_STATS.fireRate
-  6. 触发 onBulletFired 回调（通知渲染层产生子弹动画）
-  7. target.takeDamage(TOWER_STATS.damagePerShot)
-```
-
-伤害**立即结算**，子弹动画只是视觉效果，不影响游戏逻辑。
-
-### 5.5 WaveSystem — 波次管理
-
-**职责：** 管理敌人生成队列、检测波次结束、触发倒计时和胜利条件。
-
-```
-状态机：
-  gs.waveCounting = true  →  倒计时阶段
-  gs.waveInProgress = true →  波次进行中
-
-倒计时阶段（waveCounting）：
-  waveCooldown -= dt
-  → cooldown <= 0：launchNextWave()
-
-launchNextWave()：
-  waveCurrent++
-  waveInProgress = true
-  构建 spawnQueue（从 LEVEL_CONFIGS[level-1].waves[waveCurrent-1] 读取）
-  spawnTimer = 0.5  // 第一个敌人 0.5 秒后出现
-
-波次进行中：
-  spawnTimer -= dt
-  → <= 0：从 spawnQueue 取出一条，调用 onSpawnEnemy(type) 回调
-           spawnTimer = 下一条的 delay
-
-波次结束检测（每帧）：
-  如果 spawnQueue 为空 且 场上存活敌人为 0 且 spawnTimer <= 0：
-    waveInProgress = false
-    → waveCurrent >= waveTotal：调用 onAllWavesDone()（触发胜利）
-    → 否则：waveCooldown = levelCfg.waveCooldown，waveCounting = true
-```
-
----
-
-## 6. 数据模型层
-
-### 6.1 GameState — 游戏状态的唯一真实来源
-
+### `GameState`
+游戏全局状态的唯一真相来源：
 ```ts
 class GameState {
   phase: 'prepare' | 'defense' | 'result'
-  level: number
-  timeSpeed: number
-  paused: boolean
-  gameOver: boolean
+  level, timeSpeed, paused, gameOver
+  coreHealth, coreMaxHealth
 
-  coreHealth: number
-  grid: (Building | null)[][]   // 10×10 网格，直接索引
-  buildings: Building[]          // 网格中所有建筑的扁平列表（方便遍历）
+  // 网格
+  grid: (Building|null)[][]  // [y][x]
+  buildings: Building[]
+
+  // 波次
+  waveCurrent, waveTotal, waveInProgress, waveCooldown …
+
+  // 敌人
   enemies: Enemy[]
 
-  hand: CardData[]               // 玩家手牌
-  selectedCard: CardData | null
-  beltMode: boolean
-  selectedDir: number            // 0=右 1=下 2=左 3=上
+  // 手牌和 UI 状态
+  hand: CardData[]
+  selectedCard, beltTool, selectedDir
+  undergroundPending  // 地下传送带放置中的入口
 
-  spawnQueue: SpawnQueueItem[]   // 波次生成队列
-  resDisplay: ResDisplay         // 资源展示缓存（UI 用）
+  // 方法
+  placeBuilding(x, y, type, dir, card): Building | null
+  placeMultiBuilding(...)  // 多格建筑一次放置所有格子
+  removeBuilding(x, y)     // 自动处理多格（找到锚点再移除）
+  removeByAnchor(anchor)   // 直接通过锚点移除所有相关格
+  destroyBuilding(b)       // 战斗中被摧毁（不归还手牌）
+  findAnchor(b)            // 从任意格找到锚点建筑
 }
 ```
 
-`grid` 和 `buildings` 是同一份数据的两种索引：
-- `grid[y][x]` — O(1) 查找某格是否有建筑，用于碰撞/流动判断
-- `buildings[]` — 用于遍历所有建筑，如生产更新、渲染刷新
+### `beltTool` 状态机
+```
+'none'        → 未选中任何工具
+'conveyor'    → 传送带放置模式
+'splitter'    → 分流器放置模式（一次放2格）
+'underground' → 地下传送带模式（两步：先入口再出口）
+```
+`beltMode` 是一个 getter，等于 `beltTool !== 'none'`（向后兼容）。
 
-**`advanceToLevel(nextLevel)`：** 过关时调用，只重置波次/敌人/核心血量，保留 `grid` 和 `buildings`，实现跨关卡建筑继承。
+---
 
-### 6.2 Building — 建筑的运行时数据
+## 8. System 层：游戏逻辑
 
-```ts
-class Building {
-  id: number       // 唯一 ID（渲染器用此 key 管理视觉对象）
-  x, y: number     // 格坐标
-  type: BuildingType
-  dir: number      // 输出方向（0-3）
-  health: number
-  maxHealth: number
-  sourceCard: CardData | null  // 来源卡牌，移除时归还
+每个 System 都是一个无状态的服务类，通过构造函数注入回调，依赖 `GameState` 读写数据。
 
-  // 生产相关
-  prodTimer: number           // 累积计时器
-  lastOutput: string | null   // 上次输出类型（熔炉交替用）
-  inputBuf: InputBuf          // 输入缓冲 { iron_ore: 2, ... }
+### `ConveyorSystem`
+负责所有传送带类建筑（conveyor / splitter / multiblock_body / underground_in/out）的物品流动。
 
-  // 传送带
-  item: BeltItem | null       // 槽位（null = 空）
-
-  // 炮塔
-  fireCooldown: number
-  noAmmo: boolean
-
-  // 弹药箱
-  ammo: number
-  ammoMax: number             // 来自 BalanceConfig.AMMO_BOX_CAPACITY
-}
+**核心循环（每帧，倒序遍历）：**
+```
+for belt in belts (倒序):
+  belt.item.progress += BELT_SPEED * dt
+  if progress >= 1.0:
+    根据类型分发：
+      conveyor      → flushConveyor()      推入前方格
+      splitter      → tickSplitter()       均摊到两个出口
+      underground_in→ flushUndergroundIn() 瞬间跳到出口
+      underground_out → flushConveyor()    同普通传送带
 ```
 
-### 6.3 Enemy — 敌人的运行时数据
+**分流器逻辑：**
+```
+tickSplitter(anchor):
+  1. 把 body.item 同步到 anchor.itemB
+  2. outA = anchor 前方格，outB = body 前方格
+  3. anchor.item >= 1.0 → flushSplitterSlot('a', outA, outB)
+  4. anchor.itemB >= 1.0 → flushSplitterSlot('b', outA, outB)
 
-```ts
-class Enemy {
-  id: number
-  type: EnemyType
-  health: number
-  maxHealth: number
-  gx, gy: number          // 格坐标（浮点，精确位置）
-  pathIndex: number       // 下一个路径节点索引
-  state: EnemyState
-  target: 'core' | Building | null
-  atkCooldown: number
-  flashTimer: number      // 受击闪红剩余时间
+flushSplitterSlot(slot, outA, outB):
+  按 outToggle 决定先推哪个出口
+  成功 → outToggle 取反
+  两个都堵 → progress = 1.0 等待
+```
 
-  takeDamage(amount): void  // 扣血 + 设置 flashTimer
-  get isDead(): boolean
-}
+### `ProductionSystem`
+配方驱动的机器加工：
+```
+for building in buildings:
+  if 矿节点: 计时到1s → 推入前方传送带
+  if 有配方: 计时到 cycleTime → selectVariant() → outputProducts()
+    outputProducts(): 产物推入 outputPort 前方传送带
+    堵塞时还原原料等待
+```
+
+### `EnemySystem`
+```
+for enemy:
+  flashTimer 递减
+  moving → moveEnemy()
+    检查路径上障碍 → 到达目标点 → pathIndex++
+    到达终点 → 攻击核心
+  attacking → attackEnemy()
+    目标是'core' → 攻击核心 + CORE_CONTACT_DAMAGE 反伤
+    目标是建筑 → 攻击建筑，死亡则 destroyBuilding + 继续前进
+```
+
+### `DefenseSystem`
+```
+for gun_tower:
+  找相邻弹药箱 → 无弹药则 noAmmo=true，返回
+  fireCooldown 递减
+  找射程内最接近核心的敌人
+  消耗1发弹药 → 触发 onBulletFired 回调 → 立即结算伤害
+```
+
+### `WaveSystem`
+```
+处理 spawnQueue (每帧减 spawnTimer)
+  → timer <= 0 → 调 onSpawnEnemy(type) 创建敌人
+
+检测波次结束:
+  alive === 0 && spawnQueue 空 && spawnTimer <= 0
+    → 若全部波次完成 → onAllWavesDone()（胜利）
+    → 否则 waveCooldown 倒计时 → 结束后 launchNextWave()
 ```
 
 ---
 
-## 7. 配置层
+## 9. Scene / Renderer 层：视觉
 
-所有配置文件在构建时被编译进 JavaScript，运行时为**只读常量**。
+### `GameScene`（总控制器）
+- **唯一**接收鼠标/键盘输入的地方
+- `onPtrDown()` 处理放置/删除建筑逻辑
+- `activateTool(tool)` 切换工具模式并更新按钮高亮
+- `placeUnderground()` 两步放置地下传送带
+- 通过构造函数回调将事件从 System 传回 Scene（如 `onCoreAttacked`）
 
+### `BuildingRenderer`
+每个建筑**独立一个 `bgGfx` Graphics 对象**（底色+边框）：
 ```
-BalanceConfig.ts  ← 平衡数值（最常修改）
-MapConfig.ts      ← 地图结构（路径、网格）
-BuildingConfig.ts ← 建筑外观和基础属性
-EnemyConfig.ts    ← 敌人属性 + resolveEnemyCfg()（乘倍率）
-RecipeConfig.ts   ← 生产配方
-CardConfig.ts     ← 卡牌元数据（稀有度、解锁条件）
-LevelConfig.ts    ← 关卡波次 + 奖励池 + 起始卡组
-GameConfig.ts     ← 重导出文件（兼容旧 import）
-```
-
-**数据流：** 配置 → System（生产逻辑）→ Model（GameState 改变）→ Renderer（视觉更新）
-
-配置层不依赖任何其他层，是依赖关系的根节点。
-
----
-
-## 8. 渲染层
-
-渲染器只做一件事：**把 Model 的状态转化为 Phaser 视觉对象**。它们不做任何游戏逻辑判断。
-
-### 渲染深度（Z 轴）
-
-```
-Depth 0：GridRenderer    — 网格底图、路径（静态，每关绘制一次）
-Depth 1：BuildingRenderer — 建筑底色方块（静态层，gfxBuilding）
-Depth 3：BuildingRenderer — 建筑图标、血条（独立 Graphics 对象）
-Depth 4：BeltRenderer    — 传送带物品圆点（每帧 clear+redraw）
-Depth 5：EffectRenderer  — 爆炸/受伤特效（每帧更新）
-Depth 6：EnemyRenderer   — 敌人圆形底色（每帧 clear+redraw）
-Depth 7：EffectRenderer  — 子弹飞行轨迹（每帧更新）
-Depth 8：HoverRenderer   — 悬停高亮（每帧 clear+redraw）
-Depth 9：EnemyRenderer   — 敌人血条（独立 Graphics，每帧更新）
-Depth 10：EnemyRenderer  — 敌人像素脸（独立 Graphics，每帧重绘）
-Depth 19-20：HoverRenderer — 临时预览图标（鼠标移动时）
+add(b): bgGfx + iconGfx + hpBg/hpBar + ammoTxt + warnGfx
+remove(b): 全部 destroy()（不写任何覆盖像素，路径层透出）
+refresh(b): 只更新血条颜色和弹药箱数字
 ```
 
-### 静态 vs 动态渲染
+### `HoverRenderer`
+```
+_render(ptrX, ptrY, gs):
+  if beltTool === 'splitter':
+    用 getOccupiedCells 计算分流器的2格占用
+    渲染两格预览轮廓（绿=可放/红=不可放）
+  else if selectedCard:
+    getOccupiedCells 渲染所有占用格
+    锚点格画图标，body格画底色填充
+  if 悬停在机枪塔: 画射程圈
+```
 
-- **静态层（建筑底色、网格）：** 建筑放置/移除时局部更新，不每帧重绘
-- **动态层（敌人、传送带物品、特效）：** 每帧 `g.clear()` 后全量重绘
-- **独立对象（建筑图标、血条）：** 每个建筑有自己的 `Graphics` 实例，放置时创建，移除时销毁，`refresh()` 只更新变化部分（血量、弹药数）
-
-### 像素图标系统（PixelIcons.ts）
-
-所有建筑和敌人图标通过 `Phaser.GameObjects.Graphics` 的矩形 API 绘制，不使用任何图片或 emoji。
-
+### `PixelIcons`
+所有建筑/敌人图标均为纯 `Phaser.Graphics` 绘制，无图片依赖。
 ```ts
-// 统一入口
-drawBuildingIcon(scene, { type, x, y, dir }, cellSize, depth)
-  → 根据 type 查找 BUILDING_DRAW_FN[type]
-  → 调用对应的 drawXxx(g, cx, cy, iconSize) 函数
-  → 返回已绘制内容的 Graphics 对象
+drawBuildingIcon(scene, {type, x, y, dir}, cell, depth)
+  → 以 (0,0) 为中心画图标
+  → setPosition(格子中心)
+  → 若 ROTATABLE 类型：setAngle(dir * 90)
 ```
 
 ---
 
-## 9. UI 层
+## 10. UI 层：DOM 操作
 
-UI 层通过操作 DOM 更新 HTML 中的信息栏，与 Phaser Canvas 并行存在。
+全部通过 `document.getElementById` 操作 HTML 元素，不使用任何前端框架。
 
-```
-HudManager   — 顶部信息栏（核心血量、波次、关卡、倒计时、阶段标记）
-              + 资源栏（5种资源数量）
-CardManager  — 卡牌栏（手牌渲染、选中状态、传送带按钮）
-DialogManager — 所有弹窗（开局选卡、胜利/失败、奖励选择）
-DebugPanel   — Debug 日志面板（传送带/生产系统实时日志）
-```
-
-**与 GameScene 的通信：** UI 层通过 `GameScene` 直接调用，`GameScene` 在每帧末尾或事件触发时调用对应 Manager 的更新方法。
-
-**与 HTML 按钮的通信：** HTML 中 `onclick="startDefense()"` → `window.startDefense()` → `main.ts` 挂载的函数 → `gameScene.startDefense()`。
+| Manager | 职责 |
+|---------|------|
+| `HudManager` | 核心HP、波次、倒计时、阶段标签 |
+| `CardManager` | 手牌渲染（像素色块图标）+ 卡牌点击 |
+| `DialogManager` | 起始卡组弹窗、胜利/失败弹窗（按权重从 rewardPool 抽奖励） |
+| `DebugPanel` | 将 `logger` 日志挂到 DOM，支持按 tag 过滤 |
 
 ---
 
-## 10. 工具层
+## 11. Utils 层：工具函数
 
-### GridUtils.ts
-
+### `MultiBlockUtils.ts`
+多格建筑的核心计算：
 ```ts
-beltNextPos(b)           // 根据 b.dir 返回传送带下游格坐标
-getSegmentCells(i, j)    // 枚举路径节点 i 到 j 之间的所有格子
-getPathCells()           // 枚举整条路径的所有格子
-findBlockingBuilding(gs, pathIndex, gx, gy)
-                         // 查找当前路径段上、敌人前方的第一个建筑
+// 旋转一次：(dx, dy) → (-dy, dx)
+rotateCells(cells, dir): 将所有格子偏移按 dir 旋转
+
+// 计算世界坐标
+getOccupiedCells(anchorX, anchorY, cells, dir): { x, y, role }[]
+
+// 端口方向：相对 → 绝对
+resolvePortDir(relDir, buildingDir): 0..3
 ```
 
-### DebugLogger.ts
+**旋转规则：**
 
-单例 `logger`，提供节流的分类日志：
+| dir | (dx, dy) → | 含义 |
+|-----|-----------|------|
+| 0   | (dx, dy)  | 原始方向（向右） |
+| 1   | (-dy, dx) | 顺时针90°（向下） |
+| 2   | (-dx, -dy)| 180°（向左） |
+| 3   | (dy, -dx) | 270°（向上） |
 
-```ts
-logger.log('belt', '传送带(2,3) progress 0.4→0.7', 'belt-42');
-// 参数：日志分类、消息内容、节流 key（相同 key 的消息每 0.5s 最多记一条）
-```
+### `GridUtils.ts`
+- `beltNextPos(b)` — 建筑 dir 方向的下一格坐标
+- `getPathCells()` — 敌人路径覆盖的所有格坐标
+- `findBlockingBuilding(gs, pathIndex, gx, gy)` — 寻找路径上的阻挡建筑
 
-日志分类：`belt` | `prod` | `ammo` | `tower` | `warn` | `info`
-
-只有 `DBG.enabled = true`（点击 Debug 按钮）时才实际写入，生产模式无性能损耗。
+### `DebugLogger.ts`
+带节流（0.5s）的日志系统，支持 6 种 tag：belt / prod / ammo / tower / warn / info。
 
 ---
 
-## 11. 数据流向总览
+## 12. 关键机制详解
+
+### 多格建筑系统
+
+放置流程：
+```
+placeMultiBuilding(anchorX, anchorY, type, dir, card)
+  1. getOccupiedCells(anchorX, anchorY, cfg.cells, dir)
+  2. 检查所有格子是否为空且在网格内
+  3. 锚点格: placeBuilding(x, y, type, dir, card)
+  4. 副格:   placeBuilding(x, y, 'multiblock_body', dir, null)
+             body.anchorId = anchor.id
+```
+
+删除流程：
+```
+removeByAnchor(anchor)
+  1. getOccupiedCells 找到所有格子
+  2. 逐格 grid[y][x] = null，从 buildings 移除
+```
+
+副格 `multiblock_body` 通过 `anchorId` 总能找到主逻辑所在的锚点格。
+
+### 传送带背压
 
 ```
-玩家点击格子放置建筑
-  → GameScene.onPtrDown()
-  → gs.placeBuilding(x, y, type, dir, card)     [Model 修改]
-  → buildingRenderer.add(building)               [Renderer 更新]
-  → gs.hand 移除该卡牌
-  → cardMgr.render(gs)                           [UI 更新]
+矿节点产矿 → 推入前方传送带（空槽）
+             ↓ 失败（满）
+             保持 prodTimer = 1.0，下帧继续尝试（不丢弃）
 
-玩家点击"开始防御"
-  → GameScene.startDefense()
-  → gs.phase = 'defense'
-  → gs.waveCounting = true, waveCooldown = 3
-  → hud.setPhaseLabel('defense')
-
-每帧（防御阶段）：
-  ConveyorSystem:
-    belt.item.progress += BELT_SPEED × dt
-    → 推入下游（传送带/机器 inputBuf/弹药箱）
-
-  ProductionSystem:
-    矿节点.prodTimer += dt
-    → 产矿放入传送带格
-    机器.prodTimer += dt
-    → 从 inputBuf 取料，产物放入传送带格
-    → rebuildResDisplay()               [更新 resDisplay 展示缓存]
-
-  WaveSystem:
-    waveCooldown -= dt
-    → 触发 launchNextWave()
-    spawnTimer -= dt
-    → 触发 onSpawnEnemy(type)
-    → EnemySystem.spawnEnemy(gs, type)  [创建 Enemy 加入 gs.enemies]
-    检测波次结束 → 触发 onAllWavesDone() → GameScene.triggerVictory()
-
-  EnemySystem:
-    enemy.gx/gy 更新（移动）
-    enemy.target 切换（遇建筑/到核心）
-    building.takeDamage() / gs.coreHealth 减少
-    → 触发 onBuildingDestroyed / onCoreAttacked 回调
-    → GameScene 调 buildingRenderer.remove() / cameras.shake()
-
-  DefenseSystem:
-    tower.fireCooldown -= dt
-    ammoBox.ammo--
-    target.takeDamage()
-    → 触发 onBulletFired(fx, fy, tx, ty)
-    → effectRenderer.spawnBullet()      [添加子弹动画对象]
-
-渲染阶段：
-  beltRenderer.render(buildings)        [传送带圆点位置]
-  enemyRenderer.render(enemies)         [敌人底色+脸+血条]
-  effectRenderer.update(dt); .render()  [子弹进度+爆炸]
-  buildingRenderer.refresh(b)           [血条/弹药数更新]
-  hud.updateResources/updateTopBar()    [DOM 数字更新]
+熔炉加工完成 → 推入 outputPort 前方传送带
+               ↓ 失败
+               还原消耗的原料 → prodTimer = cycleTime - 0.01（立即重试）
 ```
+
+### 坐标系
+
+- `ptr.worldX / ptr.worldY` — Phaser 画布逻辑坐标（已处理 Scale.FIT 缩放）
+- 格坐标 `(gx, gy)` = `Math.floor(worldX / CELL)`
+- 像素中心 = `gx * CELL + CELL/2`
+- 敌人使用浮点格坐标 `(e.gx, e.gy)`，渲染时转像素
 
 ---
 
-## 12. 关键设计决策
+## 13. 数据流向总览
 
-### 12.1 为什么用回调注入而不是直接引用 GameScene？
-
-```ts
-// ❌ 坏的做法：系统直接引用场景
-class EnemySystem {
-  constructor(private scene: GameScene) {}
-  // 后续 EnemySystem 就依赖了 GameScene 的所有内容
-}
-
-// ✅ 好的做法：通过回调解耦
-class EnemySystem {
-  constructor(
-    private onCoreAttacked: (damage: number) => void,
-    private onBuildingDestroyed: (b: Building) => void,
-  ) {}
-}
 ```
+用户点击格子
+  → GameScene.onPtrDown(ptr)
+  → gx = worldX / CELL
+  → gs.placeMultiBuilding(gx, gy, type, dir, card)
+  → buildingRenderer.add(b)（每个建筑格子各一次）
 
-System 只依赖 `GameState`（数据）和回调（接口），不依赖具体实现，可以独立测试。
+每帧 update:
+  ConveyorSystem
+    belt.item.progress += BELT_SPEED * dt
+    progress >= 1 → tryPush(gs, item, nx, ny)
+      → 目标格 item = {type, progress:0}
 
-### 12.2 为什么 grid 和 buildings 两个索引并存？
+  ProductionSystem
+    矿节点 prodTimer += dt → 推入传送带（beltNextPos）
+    熔炉/组装机 → selectVariant → outputProducts → 传送带
 
-- `grid[y][x]`：O(1) 格子查找，用于路径检测、传送带流动判断
-- `buildings[]`：O(n) 遍历，用于生产更新、渲染刷新、过滤特定类型
+  EnemySystem
+    e.gx += e.speed * dt → 到路径点 → pathIndex++
+    攻击建筑 → b.health-- → isDead → gs.destroyBuilding(b) → 回调
 
-两者始终同步（`placeBuilding`/`removeBuilding`/`destroyBuilding` 同时更新两个）。
+  DefenseSystem
+    tower → findNearbyAmmoBox → ammoBox.ammo-- → takeDamage(10)
+    → 回调 onBulletFired(fx,fy,tx,ty) → effectRenderer.spawnBullet
 
-### 12.3 为什么 advanceToLevel 而不是 new GameState？
-
-过关后新建 `GameState` 会清空网格，建筑全没了。`advanceToLevel()` 只重置战斗状态，保留网格和建筑，实现"带着工厂打下一关"的核心体验。
-
-### 12.4 传送带为什么倒序遍历？
-
-```ts
-for (let i = belts.length - 1; i >= 0; i--) {
-  // ...
-}
+  渲染层读 gs.buildings / gs.enemies → Phaser Graphics 更新
+  UI层读 gs.resDisplay / gs.core.health → DOM 更新
 ```
-
-正序遍历时，靠前的传送带物品推入后面的格子，后面的格子在同一帧又被遍历到，物品就会一帧内跑多格。倒序确保下游先处理，上游的推入只在下一帧才生效。
-
-### 12.5 时间倍率（timeSpeed）如何实现？
-
-```ts
-const dt = (delta / 1000) * this.gs.timeSpeed;
-```
-
-所有 System 接收的 `dt` 已乘以倍率。`timeSpeed = 2` 时 `dt` 是真实帧间隔的 2 倍，等效于所有计时器加速 2 倍。渲染动画也使用同样的 `dt`，因此子弹、传送带圆点等都会随之加速。
