@@ -220,24 +220,53 @@ export function drawCore(g: G, cx: number, cy: number, s: number): void {
   });
 }
 
-// ── 分流器 ───────────────────────────────────────────────────────
-// 视觉：一条入线分叉成左右两条出线（Y 字形）
-export function drawSplitter(g: G, cx: number, cy: number, s: number): void {
+// ── 分流器（Factorio 式 2×1） ────────────────────────────────────
+//
+// splitter_a（上格）：输入侧左半 + 分叉线到上出口
+// splitter_b（下格）：输入侧左半 + 分叉线到下出口
+// 两格旋转时和传送带一样整体转，形成完整的"="形图案
+//
+// 标准方向 dir=0（向右）：
+//   左边两格为输入，右边两格为输出，中间竖线为分流板
+
+export function drawSplitterA(g: G, cx: number, cy: number, s: number): void {
   const u = s / 32;
-  // 入线（从左进，dir=0 向右为标准方向）
+  // 主体背景
+  g.fillStyle(0x1A4A2A, 1);
+  g.fillRect(cx - 12*u, cy - 12*u, 24*u, 12*u); // 上半部分（a 格占用）
+  // 输入侧（左边，入线）
   g.fillStyle(C.amber, 1);
-  g.fillRect(cx - 10*u, cy - 2*u, 10*u, 4*u);      // 入线主干
-  // 出线分叉（右侧分出上下两条）
-  g.fillRect(cx,        cy - 2*u, 10*u, 4*u);        // 向右主干
-  g.fillRect(cx + 4*u, cy - 8*u,  4*u, 6*u);         // 右上分支
-  g.fillRect(cx + 4*u, cy + 2*u,  4*u, 6*u);         // 右下分支
-  // 分叉节点
+  g.fillRect(cx - 12*u, cy - 6*u, 10*u, 4*u);  // 入线
+  // 中间分流板（竖线）
+  g.fillStyle(0x88FF88, 1);
+  g.fillRect(cx - 2*u, cy - 12*u, 4*u, 12*u);  // 上半分流板
+  // 输出侧（右边，出线到上方）
+  g.fillStyle(C.amber, 1);
+  g.fillRect(cx + 2*u, cy - 6*u, 10*u, 4*u);   // 出线
+  // 输入/输出箭头
   g.fillStyle(0xFFFFAA, 1);
-  g.fillRect(cx + 2*u, cy - 2*u, 4*u, 4*u);
-  // 出口箭头（小三角，用矩形模拟）
+  g.fillRect(cx - 4*u, cy - 6*u, 4*u, 4*u);    // 输入口
+  g.fillRect(cx + 8*u, cy - 6*u, 4*u, 4*u);    // 输出口
+}
+
+export function drawSplitterB(g: G, cx: number, cy: number, s: number): void {
+  const u = s / 32;
+  // 主体背景（下半）
+  g.fillStyle(0x1A4A2A, 1);
+  g.fillRect(cx - 12*u, cy, 24*u, 12*u);
+  // 输入侧
   g.fillStyle(C.amber, 1);
-  g.fillRect(cx + 10*u, cy - 8*u, 2*u, 4*u);
-  g.fillRect(cx + 10*u, cy + 4*u, 2*u, 4*u);
+  g.fillRect(cx - 12*u, cy + 2*u, 10*u, 4*u);
+  // 中间分流板（下半）
+  g.fillStyle(0x88FF88, 1);
+  g.fillRect(cx - 2*u, cy, 4*u, 12*u);
+  // 输出侧
+  g.fillStyle(C.amber, 1);
+  g.fillRect(cx + 2*u, cy + 2*u, 10*u, 4*u);
+  // 输入/输出口标记
+  g.fillStyle(0xFFFFAA, 1);
+  g.fillRect(cx - 4*u, cy + 2*u, 4*u, 4*u);
+  g.fillRect(cx + 8*u, cy + 2*u, 4*u, 4*u);
 }
 
 // ── 地下传送带入口 ────────────────────────────────────────────────
@@ -352,7 +381,8 @@ export const BUILDING_DRAW_FN: Record<string, DrawFn> = {
   wall:            drawWall,
   ammo_box:        drawAmmoBox,
   core:            drawCore,
-  splitter:        drawSplitter,
+  splitter_a:      drawSplitterA,
+  splitter_b:      drawSplitterB,
   underground_in:  drawUndergroundIn,
   underground_out: drawUndergroundOut,
   // conveyor 单独处理（需要 dir 参数）
@@ -393,7 +423,7 @@ export function drawBuildingIcon(
   // 对有明确朝向的建筑应用整体旋转
   // 矿节点图标是对称山形，旋转无视觉意义，不旋转
   // conveyor 内部已按 dir 绘制，不旋转
-  const ROTATABLE = ['furnace', 'assembler', 'gun_tower', 'splitter', 'underground_in', 'underground_out'];
+  const ROTATABLE = ['furnace', 'assembler', 'gun_tower', 'splitter_a', 'splitter_b', 'underground_in', 'underground_out'];
   if (ROTATABLE.includes(b.type)) {
     g.setAngle(b.dir * 90);
   }

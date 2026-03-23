@@ -14,7 +14,8 @@ export type BuildingType =
   | 'wall'
   | 'ammo_box'
   | 'conveyor'
-  | 'splitter'          // 分流器：1入2出，交替分流到左右
+  | 'splitter_a'        // 分流器主格（持有逻辑状态，驱动分流）
+  | 'splitter_b'        // 分流器副格（占格，与 a 配对）
   | 'underground_in'    // 地下传送带入口
   | 'underground_out'   // 地下传送带出口
   | 'core';
@@ -49,7 +50,8 @@ export const BUILDING_CONFIGS: Record<BuildingType, BuildingCfg> = {
   wall:            { hp: 100, emoji: '🧱', color: 0x707B7C, name: '围墙',     desc: 'HP:100' },
   ammo_box:        { hp: 60,  emoji: '📦', color: 0xD4AC0D, name: '弹药箱',   desc: `存弹${AMMO_BOX_CAPACITY}发` },
   conveyor:        { hp: 999, emoji: '→',  color: 0x4A5568, name: '传送带',   desc: '运输资源' },
-  splitter:        { hp: 999, emoji: '⑂',  color: 0x2E6B4A, name: '分流器',   desc: '交替分流至两侧' },
+  splitter_a:      { hp: 999, emoji: '⑂',  color: 0x2E6B4A, name: '分流器',   desc: '2入→2出，均摊' },
+  splitter_b:      { hp: 999, emoji: '⑂',  color: 0x2E6B4A, name: '分流器',   desc: '（副格）' },
   underground_in:  { hp: 999, emoji: '▼',  color: 0x3A2E6A, name: '地下入口', desc: '物品入地下' },
   underground_out: { hp: 999, emoji: '▲',  color: 0x3A2E6A, name: '地下出口', desc: '物品出地下' },
   core:            { hp: 200, emoji: '💎', color: 0xE67E22, name: '核心',     desc: '守护目标' },
@@ -58,7 +60,7 @@ export const BUILDING_CONFIGS: Record<BuildingType, BuildingCfg> = {
 // ── 有输出方向的建筑 ─────────────────────────────────────────────
 export const HAS_OUTPUT_DIR: BuildingType[] = [
   'iron_ore_node', 'copper_ore_node', 'furnace', 'assembler',
-  'conveyor', 'splitter', 'underground_in', 'underground_out',
+  'conveyor', 'splitter_a', 'splitter_b', 'underground_in', 'underground_out',
 ];
 
 export const MACHINE_ACCEPTS: Partial<Record<BuildingType, ResourceType[]>> = {

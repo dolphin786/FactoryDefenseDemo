@@ -241,10 +241,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.gs.beltTool === 'splitter') {
-      if (this.gs.getCell(gx, gy) == null && !(gx === CORE_X && gy === CORE_Y)) {
-        const b = this.gs.placeBuilding(gx, gy, 'splitter', this.gs.selectedDir, null);
-        if (b) this.buildingRenderer.add(b);
-      }
+      this.placeSplitter(gx, gy);
       return;
     }
 
@@ -385,6 +382,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * 分流器一步放置：一次点击同时放置 splitter_a 和 splitter_b。
+   *
+   * 分流器是 2×1 建筑，长边垂直于传送方向（dir）：
+   *   dir=0(右)/dir=2(左)：两格上下排列（同列，gy 和 gy+1）
+   *   dir=1(下)/dir=3(上)：两格左右排列（同行，gx 和 gx+1）
+   *
+   * 点击的格子是 splitter_a（主格），相邻格是 splitter_b（副格）。
+   * 两格均需为空。
+   */
+  private placeSplitter(gx: number, gy: number): void {
+    const dir = this.gs.selectedDir;
+    // 副格偏移：垂直于 dir 方向的下一格
+    // dir=右/左 → 副格在下方(+y)；dir=下/上 → 副格在右侧(+x)
+    const [bx, by] = (dir === 0 || dir === 2)
+      ? [gx, gy + 1]   // 水平传送 → 两格竖向排列
+      : [gx + 1, gy];  // 竖向传送 → 两格横向排列
+
+    if (!this.gs.inGrid(bx, by)) return;
+    if (this.gs.getCell(gx, gy) != null) return;
+    if (this.gs.getCell(bx, by) != null) return;
+    if ((gx === CORE_X && gy === CORE_Y) || (bx === CORE_X && by === CORE_Y)) return;
+
+    const a = this.gs.placeBuilding(gx, gy, 'splitter_a', dir, null);
+    const b = this.gs.placeBuilding(bx, by, 'splitter_b', dir, null);
+    if (a && b) {
+      a.pairId = b.id;
+      b.pairId = a.id;
+      this.buildingRenderer.add(a);
+      this.buildingRenderer.add(b);
+    } else {
+      // 回滚（理论上不会走到这里）
+      if (a) { this.gs.removeBuilding(gx, gy); }
+      if (b) { this.gs.removeBuilding(bx, by); }
+    }
+  }
+
+  /**
    * 地下传送带两步放置逻辑：
    *   第一步：放置入口（underground_in），记录到 undergroundPending
    *   第二步：放置出口（underground_out），和入口配对
@@ -423,8 +457,8 @@ export class GameScene extends Phaser.Scene {
       if (this.gs.getCell(gx, gy) != null) return;
       const outlet = this.gs.placeBuilding(gx, gy, 'underground_out', dir, null);
       if (outlet) {
-        inlet.undergroundPairId  = outlet.id;
-        outlet.undergroundPairId = inlet.id;
+        inlet.pairId  = outlet.id;
+        outlet.pairId = inlet.id;
         this.buildingRenderer.add(outlet);
         this.gs.undergroundPending = null;
         const el = document.getElementById('hint-bar');

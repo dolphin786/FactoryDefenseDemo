@@ -37,11 +37,16 @@ export class Building {
   fireCooldown = 0;
   noAmmo = false;
 
-  // 分流器：记录下次分流到哪侧（0=左 1=右，交替）
-  splitterToggle = 0;
+  /**
+   * 分流器共享状态（仅 splitter_a 使用，splitter_b 通过 pairId 查 a）
+   *   itemB:          副格（splitter_b 对应位置）的输入槽
+   *   outToggle:      下次优先输出到哪侧（0=a侧/上, 1=b侧/下），交替
+   */
+  itemB: BeltItem | null = null;
+  outToggle = 0;
 
-  // 地下传送带：配对 id（入口记录对应出口 id，出口记录对应入口 id）
-  undergroundPairId: number | null = null;
+  // 配对 id：分流器 a↔b 互记，地下传送带 in↔out 互记
+  pairId: number | null = null;
 
   // 弹药箱
   ammo = 0;

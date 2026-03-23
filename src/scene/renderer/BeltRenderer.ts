@@ -4,7 +4,10 @@ import { RESOURCE_COLORS } from '../../config/BuildingConfig';
 import type { Building } from '../../model/Building';
 
 /**
- * BeltRenderer — 每帧绘制传送带上的资源圆点
+ * BeltRenderer — 每帧绘制传送带类建筑上的资源圆点
+ *
+ * splitter_a 有两个槽：item（a格）和 itemB（b格对应位置）
+ * 两个槽各自按其所在格的位置渲染圆点
  */
 export class BeltRenderer {
   private gfx: Phaser.GameObjects.Graphics;
@@ -17,27 +20,53 @@ export class BeltRenderer {
     const g = this.gfx;
     g.clear();
 
-    const BELT_TYPES = new Set(['conveyor', 'splitter', 'underground_in', 'underground_out']);
+    const BELT_TYPES = new Set([
+      'conveyor', 'splitter_a', 'splitter_b',
+      'underground_in', 'underground_out',
+    ]);
+
     for (const b of buildings) {
-      if (!BELT_TYPES.has(b.type) || b.item == null) continue;
+      if (!BELT_TYPES.has(b.type)) continue;
 
-      const progress = Math.min(b.item.progress, 1.0);
-      const cx = b.x * CELL + CELL / 2;
-      const cy = b.y * CELL + CELL / 2;
+      // 渲染主槽（b.item）
+      if (b.item != null) {
+        this.drawItem(g, b.x, b.y, b.dir, b.item.progress, b.item.type);
+      }
 
-      // 物品从格子上游边缘移向下游边缘
-      // progress=0 → 上游边缘；progress=1 → 下游边缘
-      const upDX = -DIR_DX[b.dir];
-      const upDY = -DIR_DY[b.dir];
-      const ox = cx + upDX * (CELL / 2) * (1 - progress * 2);
-      const oy = cy + upDY * (CELL / 2) * (1 - progress * 2);
-
-      const col = RESOURCE_COLORS[b.item.type] ?? 0xFFFFFF;
-      g.fillStyle(col, 1);
-      g.fillCircle(ox, oy, 7);
-      g.lineStyle(1, 0xFFFFFF, 0.5);
-      g.strokeCircle(ox, oy, 7);
+      // splitter_a 的副槽（b.itemB）：渲染在 b 格位置
+      // 找到 b 格坐标：需要知道 pairId 对应的 splitter_b
+      // 简化：直接从 itemB 的存在推断位置（itemB 对应 b 格，即 dir 垂直方向的相邻格）
+      // 由于 splitter_b 的位置在 a 的垂直方向，用 dir 反推
+      if (b.type === 'splitter_a' && b.itemB != null) {
+        // a 格是 splitter_a，b 格在垂直 dir 方向的下一格
+        const [bx, by] = (b.dir === 0 || b.dir === 2)
+          ? [b.x, b.y + 1]
+          : [b.x + 1, b.y];
+        this.drawItem(g, bx, by, b.dir, b.itemB.progress, b.itemB.type);
+      }
     }
+  }
+
+  private drawItem(
+    g: Phaser.GameObjects.Graphics,
+    gx: number, gy: number,
+    dir: number,
+    progress: number,
+    resType: string,
+  ): void {
+    const p  = Math.min(progress, 1.0);
+    const cx = gx * CELL + CELL / 2;
+    const cy = gy * CELL + CELL / 2;
+    const upDX = -DIR_DX[dir];
+    const upDY = -DIR_DY[dir];
+    const ox = cx + upDX * (CELL / 2) * (1 - p * 2);
+    const oy = cy + upDY * (CELL / 2) * (1 - p * 2);
+
+    const col = (RESOURCE_COLORS as Record<string, number>)[resType] ?? 0xFFFFFF;
+    g.fillStyle(col, 1);
+    g.fillCircle(ox, oy, Math.max(3, CELL * 0.22));
+    g.lineStyle(1, 0xFFFFFF, 0.5);
+    g.strokeCircle(ox, oy, Math.max(3, CELL * 0.22));
   }
 
   destroy(): void { this.gfx.destroy(); }
