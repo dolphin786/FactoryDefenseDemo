@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CELL } from '../../config/GameConfig';
 import { BUILDING_CONFIGS, HAS_OUTPUT_DIR } from '../../config/BuildingConfig';
-import { DIR_DX, DIR_DY } from '../../config/GameConfig';
+
 import { Building } from '../../model/Building';
 import { getPathCells } from '../../utils/GridUtils';
 import { drawBuildingIcon, drawDirArrow } from './PixelIcons';
@@ -64,12 +64,13 @@ export class BuildingRenderer {
     const iconGfx = drawBuildingIcon(this.scene, b, CELL, 3);
 
     // ── 输出方向箭头（矿节点/熔炉/组装机） ─────────────────
+    // 箭头固定画在格子右下角区域，箭头中心在那里，方向指向 b.dir
     let dirGfx: Phaser.GameObjects.Graphics | null = null;
     if (HAS_OUTPUT_DIR.includes(b.type) && b.type !== 'conveyor') {
       dirGfx = this.scene.add.graphics().setDepth(4);
-      // 小箭头画在右下角
-      const adx = DIR_DX[b.dir], ady = DIR_DY[b.dir];
-      const ax = cx + adx * 10 + 8, ay = cy + ady * 10 + 8;
+      // 固定位置：格子右下角，不随方向偏移
+      const ax = px + CELL - 10;
+      const ay = py + CELL - 10;
       drawDirArrow(dirGfx, ax, ay, b.dir, 10, 0xFFCC00);
     }
 
