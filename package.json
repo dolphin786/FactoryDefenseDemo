@@ -1,22 +1,48 @@
 {
-  "name": "demo",
+  "name": "factory-defense",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "工厂守卫战 - 工厂建造 × Roguelike 卡牌 × 塔防 Demo",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder --win --x64"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.9.3",
     "vite": "^6.4.1"
   },
   "dependencies": {
     "phaser": "^3.90.0"
+  },
+  "build": {
+    "appId": "com.gamedev.factory-defense",
+    "productName": "工厂守卫战",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/main.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "factory-defense-win-x64.exe"
+    }
   }
 }
