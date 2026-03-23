@@ -3,7 +3,7 @@ import { CELL } from '../../config/GameConfig';
 import { BUILDING_CONFIGS, HAS_OUTPUT_DIR } from '../../config/BuildingConfig';
 import { DIR_NAMES } from '../../config/GameConfig';
 import type { GameState } from '../../model/GameState';
-import { drawBuildingIcon, drawDirArrow, drawConveyor } from './PixelIcons';
+import { drawBuildingIcon, drawConveyor } from './PixelIcons';
 
 /**
  * HoverRenderer — 鼠标悬停时的预览高亮（像素风）
@@ -102,11 +102,8 @@ export class HoverRenderer {
           iconG.setAlpha(0.7);
           this._tmpGfx.push(iconG); // 加入管理
 
-          // 有输出方向的建筑：叠加方向箭头
+          // 有输出方向的建筑：图标已旋转，只更新 hint bar
           if (HAS_OUTPUT_DIR.includes(btype)) {
-            const ag = this.tmpGfx(20);
-            drawDirArrow(ag, cx + 10, cy + 10, gs.selectedDir, 12, 0xFFCC00);
-            ag.setAlpha(0.9);
             this.updateHintBar(`DIR: ${DIR_NAMES[gs.selectedDir]}  R:ROTATE  RMB:CANCEL`);
           }
 

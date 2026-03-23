@@ -1,15 +1,13 @@
 import Phaser from 'phaser';
 import { CELL } from '../../config/GameConfig';
-import { BUILDING_CONFIGS, HAS_OUTPUT_DIR } from '../../config/BuildingConfig';
-
+import { BUILDING_CONFIGS } from '../../config/BuildingConfig';
 import { Building } from '../../model/Building';
 import { getPathCells } from '../../utils/GridUtils';
-import { drawBuildingIcon, drawDirArrow } from './PixelIcons';
+import { drawBuildingIcon } from './PixelIcons';
 import { GRID_COLOR_BG, GRID_COLOR_PATH, GRID_COLOR_LINE } from './GridRenderer';
 
 interface BuildingVisual {
-  iconGfx:  Phaser.GameObjects.Graphics | null;  // 像素图标
-  dirGfx:   Phaser.GameObjects.Graphics | null;  // 输出方向箭头
+  iconGfx:  Phaser.GameObjects.Graphics | null;  // 像素图标（含旋转）
   hpBg:     Phaser.GameObjects.Graphics | null;
   hpBar:    Phaser.GameObjects.Graphics | null;
   ammoTxt:  Phaser.GameObjects.Text | null;
@@ -61,18 +59,8 @@ export class BuildingRenderer {
     }
 
     // ── 像素图标 ────────────────────────────────────────────
+    // 像素图标（内部已对可旋转建筑应用 setAngle(dir*90)）
     const iconGfx = drawBuildingIcon(this.scene, b, CELL, 3);
-
-    // ── 输出方向箭头（矿节点/熔炉/组装机） ─────────────────
-    // 箭头固定画在格子右下角区域，箭头中心在那里，方向指向 b.dir
-    let dirGfx: Phaser.GameObjects.Graphics | null = null;
-    if (HAS_OUTPUT_DIR.includes(b.type) && b.type !== 'conveyor') {
-      dirGfx = this.scene.add.graphics().setDepth(4);
-      // 固定位置：格子右下角，不随方向偏移
-      const ax = px + CELL - 10;
-      const ay = py + CELL - 10;
-      drawDirArrow(dirGfx, ax, ay, b.dir, 10, 0xFFCC00);
-    }
 
     // ── 弹药箱：显示存弹量（像素字体） ─────────────────────
     let ammoTxt: Phaser.GameObjects.Text | null = null;
@@ -112,7 +100,7 @@ export class BuildingRenderer {
       hpBar.fillRect(px + 3, py + CELL - 7, CELL - 6, 4);
     }
 
-    this.visuals.set(b.id, { iconGfx, dirGfx, hpBg, hpBar, ammoTxt, warnGfx });
+    this.visuals.set(b.id, { iconGfx, hpBg, hpBar, ammoTxt, warnGfx });
   }
 
   refresh(b: Building): void {
@@ -143,7 +131,7 @@ export class BuildingRenderer {
   remove(b: Building): void {
     const v = this.visuals.get(b.id);
     if (!v) return;
-    v.iconGfx?.destroy(); v.dirGfx?.destroy(); v.ammoTxt?.destroy();
+    v.iconGfx?.destroy(); v.ammoTxt?.destroy();
     v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
     this.visuals.delete(b.id);
 
@@ -158,7 +146,7 @@ export class BuildingRenderer {
 
   clearAll(): void {
     for (const [, v] of this.visuals) {
-      v.iconGfx?.destroy(); v.dirGfx?.destroy(); v.ammoTxt?.destroy();
+      v.iconGfx?.destroy(); v.ammoTxt?.destroy();
       v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
     }
     this.visuals.clear();

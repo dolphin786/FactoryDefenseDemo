@@ -78,21 +78,23 @@ export function drawCopperOreNode(g: G, cx: number, cy: number, s: number): void
 
 export function drawFurnace(g: G, cx: number, cy: number, s: number): void {
   const u = s / 32;
-  // 炉体
+  // 炉体（中央方块）
   g.fillStyle(C.furnaceA, 1);
-  g.fillRect(cx - 10*u, cy - 8*u, 20*u, 18*u);
-  // 炉口（顶部凹口）
-  g.fillStyle(0x1a1a1a, 1);
-  g.fillRect(cx - 4*u, cy - 8*u, 8*u, 4*u);
-  // 火焰（橙色小块）
+  g.fillRect(cx - 8*u, cy - 8*u, 16*u, 16*u);
+  // 输出口在右侧（dir=0 向右）
   g.fillStyle(C.furnaceB, 1);
-  g.fillRect(cx - 4*u, cy - 2*u, 4*u, 6*u);
-  g.fillRect(cx + 2*u, cy,       4*u, 4*u);
+  g.fillRect(cx + 8*u, cy - 3*u, 6*u, 6*u);   // 右侧出口
   g.fillStyle(0xFFFF44, 0.8);
-  g.fillRect(cx - 2*u, cy - 2*u, 2*u, 4*u);
-  // 底座
-  g.fillStyle(0x444444, 1);
-  g.fillRect(cx - 12*u, cy + 10*u, 24*u, 4*u);
+  g.fillRect(cx + 10*u, cy - 2*u, 2*u, 4*u);  // 出口亮光
+  // 炉膛（左侧凹口 = 输入口）
+  g.fillStyle(0x1a1a1a, 1);
+  g.fillRect(cx - 10*u, cy - 3*u, 4*u, 6*u);
+  // 火焰
+  g.fillStyle(C.furnaceB, 1);
+  g.fillRect(cx - 3*u, cy - 4*u, 3*u, 5*u);
+  g.fillRect(cx + 1*u, cy - 3*u, 3*u, 4*u);
+  g.fillStyle(0xFFFF44, 0.7);
+  g.fillRect(cx - 1*u, cy - 4*u, 2*u, 4*u);
 }
 
 export function drawAssembler(g: G, cx: number, cy: number, s: number): void {
@@ -295,7 +297,16 @@ export const BUILDING_DRAW_FN: Record<string, DrawFn> = {
   // conveyor 单独处理（需要 dir 参数）
 };
 
-/** 绘制建筑图标到独立 Graphics 对象（每个建筑单独一个，便于销毁重绘） */
+/**
+ * 绘制建筑图标到独立 Graphics 对象。
+ *
+ * 图标以格子中心为旋转轴绘制（图形坐标以 0,0 为中心），
+ * Graphics 对象的位置设为格子像素中心，
+ * 然后对 Graphics 对象应用 setAngle(dir * 90) 实现整体旋转。
+ *
+ * 这样旋转后，图标朝向自然跟随 dir，不需要额外的方向箭头标记。
+ * 不参与旋转的建筑（core、wall、ammo_box）dir 始终为 0，不影响外观。
+ */
 export function drawBuildingIcon(
   scene: Phaser.Scene,
   b: { type: string; x: number; y: number; dir: number },
@@ -303,15 +314,28 @@ export function drawBuildingIcon(
   depth: number,
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics().setDepth(depth);
-  const cx = b.x * cell + cell / 2;
-  const cy = b.y * cell + cell / 2;
-  const iconSize = cell * 0.72; // 图标占格子 72%
+  const iconSize = cell * 0.72;
 
+  // 图形画在以 (0,0) 为中心的局部坐标系
   if (b.type === 'conveyor') {
-    drawConveyor(g, cx, cy, iconSize, b.dir);
+    drawConveyor(g, 0, 0, iconSize, b.dir);
   } else {
     const fn = BUILDING_DRAW_FN[b.type];
-    if (fn) fn(g, cx, cy, iconSize);
+    if (fn) fn(g, 0, 0, iconSize);
   }
+
+  // 把 Graphics 移动到格子像素中心，Phaser 绕其自身 (0,0) 旋转 = 绕格中心旋转
+  const cx = b.x * cell + cell / 2;
+  const cy = b.y * cell + cell / 2;
+  g.setPosition(cx, cy);
+
+  // 对有明确朝向的建筑应用整体旋转
+  // 矿节点图标是对称山形，旋转无视觉意义，不旋转
+  // conveyor 内部已按 dir 绘制，不旋转
+  const ROTATABLE = ['furnace', 'assembler', 'gun_tower'];
+  if (ROTATABLE.includes(b.type)) {
+    g.setAngle(b.dir * 90);
+  }
+
   return g;
 }
