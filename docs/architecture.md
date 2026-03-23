@@ -376,10 +376,35 @@ for belt in belts (倒序):
   belt.item.progress += BELT_SPEED * dt
   if progress >= 1.0:
     根据类型分发：
-      conveyor      → flushConveyor()      推入前方格
-      splitter      → tickSplitter()       均摊到两个出口
-      underground_in→ flushUndergroundIn() 瞬间跳到出口
-      underground_out → flushConveyor()    同普通传送带
+      conveyor        → flushConveyor()      推入前方格
+      splitter        → tickSplitter()       均摊到两个出口
+      underground_in  → flushUndergroundIn() 瞬间跳到出口
+      underground_out → flushConveyor()      同普通传送带
+      multiblock_body → 跳过（由锚点驱动）
+```
+
+**tryPush 进料路由：**
+```
+传送带物品到达目标格 (tx,ty) 时：
+
+  目标是 conveyor / underground_in/out
+    → 进入 item 槽
+
+  目标是 splitter（锚点格）
+    → 进入 item 槽（由 tickSplitter 推出）
+
+  目标是 multiblock_body（副格）
+    → 通过 anchorId 找到锚点
+    → 若锚点是 splitter  → 进 body.item 槽
+    → 若锚点是机器（furnace/assembler 等）→ 推入锚点 inputBuf
+    ★ 多格机器的任意格子（锚点或副格）均可作为进料口，
+      支持不同原料从不同方向/格子接入同一台机器
+
+  目标是机器锚点格（furnace/assembler 等）
+    → 推入该机器的 inputBuf
+
+  目标是 ammo_box + item 是 bullet
+    → 存入弹药箱
 ```
 
 **分流器逻辑：**
@@ -387,7 +412,7 @@ for belt in belts (倒序):
 tickSplitter(anchor):
   1. 把 body.item 同步到 anchor.itemB
   2. outA = anchor 前方格，outB = body 前方格
-  3. anchor.item >= 1.0 → flushSplitterSlot('a', outA, outB)
+  3. anchor.item  >= 1.0 → flushSplitterSlot('a', outA, outB)
   4. anchor.itemB >= 1.0 → flushSplitterSlot('b', outA, outB)
 
 flushSplitterSlot(slot, outA, outB):
