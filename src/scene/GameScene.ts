@@ -57,7 +57,7 @@ export class GameScene extends Phaser.Scene {
 
     // 渲染器初始化
     this.gridRenderer     = new GridRenderer(this, 0);
-    this.buildingRenderer = new BuildingRenderer(this, 1);
+    this.buildingRenderer = new BuildingRenderer(this);
     this.beltRenderer     = new BeltRenderer(this, 4);
     this.effectRenderer   = new EffectRenderer(this, 7, 5);
     this.enemyRenderer    = new EnemyRenderer(this, 6);

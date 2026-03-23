@@ -2,67 +2,62 @@ import Phaser from 'phaser';
 import { CELL } from '../../config/GameConfig';
 import { BUILDING_CONFIGS } from '../../config/BuildingConfig';
 import { Building } from '../../model/Building';
-import { getPathCells } from '../../utils/GridUtils';
 import { drawBuildingIcon } from './PixelIcons';
-import { GRID_COLOR_BG, GRID_COLOR_PATH, GRID_COLOR_LINE } from './GridRenderer';
 
 interface BuildingVisual {
-  iconGfx:  Phaser.GameObjects.Graphics | null;  // 像素图标（含旋转）
+  bgGfx:    Phaser.GameObjects.Graphics;       // 底色 + 边框（独立对象，删除时直接 destroy）
+  iconGfx:  Phaser.GameObjects.Graphics | null;
   hpBg:     Phaser.GameObjects.Graphics | null;
   hpBar:    Phaser.GameObjects.Graphics | null;
   ammoTxt:  Phaser.GameObjects.Text | null;
-  warnGfx:  Phaser.GameObjects.Graphics | null;  // 无弹药警告（像素X）
+  warnGfx:  Phaser.GameObjects.Graphics | null;
 }
 
 /**
  * BuildingRenderer — 管理所有建筑的像素视觉
  *
- * 完全使用 Phaser Graphics 绘制，不依赖 emoji 或系统字体。
+ * 每个建筑的底色、边框、图标、血条均为独立 Graphics 对象。
+ * 删除建筑时全部 destroy()，不往任何共享层写覆盖像素，
+ * 确保下层路径（GridRenderer）始终透出。
  */
 export class BuildingRenderer {
-  private scene:       Phaser.Scene;
-  private gfxBuilding: Phaser.GameObjects.Graphics; // 底色层（静态）
+  private scene: Phaser.Scene;
   private visuals = new Map<number, BuildingVisual>();
-  private pathSet: Set<string>;
 
-  constructor(scene: Phaser.Scene, depth = 1) {
+  constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.gfxBuilding = scene.add.graphics().setDepth(depth);
-    this.pathSet = new Set(getPathCells().map(c => `${c.x},${c.y}`));
   }
 
   add(b: Building): void {
-    const cfg  = BUILDING_CONFIGS[b.type];
-    const px   = b.x * CELL, py = b.y * CELL;
-    const cx   = px + CELL / 2, cy = py + CELL / 2;
-    const g    = this.gfxBuilding;
+    const cfg = BUILDING_CONFIGS[b.type];
+    const px  = b.x * CELL, py = b.y * CELL;
+    const cx  = px + CELL / 2, cy = py + CELL / 2;
 
-    // ── 底色方块 ─────────────────────────────────────────────
-    g.fillStyle(cfg.color, 0.85);
-    g.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+    // ── 底色 + 边框（独立 Graphics，depth=1） ────────────────
+    const bgGfx = this.scene.add.graphics().setDepth(1);
 
-    // 像素风边框：外框深色，内框亮色（凸起效果）
-    g.lineStyle(1, 0x000000, 1);
-    g.strokeRect(px + 2,        py + 2,        CELL - 4, CELL - 4);
-    g.lineStyle(1, 0xFFFFFF, 0.18);
-    g.strokeRect(px + 3,        py + 3,        CELL - 6, CELL - 6);
+    bgGfx.fillStyle(cfg.color, 0.9);
+    bgGfx.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
 
-    // 核心建筑：金色双边框
+    // 外框黑，内框白（像素凸起）
+    bgGfx.lineStyle(1, 0x000000, 1);
+    bgGfx.strokeRect(px + 2, py + 2, CELL - 4, CELL - 4);
+    bgGfx.lineStyle(1, 0xFFFFFF, 0.18);
+    bgGfx.strokeRect(px + 3, py + 3, CELL - 6, CELL - 6);
+
+    // 建筑类型专属边框
     if (b.type === 'core') {
-      g.lineStyle(2, 0xFFD700, 1);
-      g.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    }
-    // 炮塔：红色外框
-    if (b.type === 'gun_tower') {
-      g.lineStyle(1, 0xFF4040, 0.7);
-      g.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+      bgGfx.lineStyle(2, 0xFFD700, 1);
+      bgGfx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+    } else if (b.type === 'gun_tower') {
+      bgGfx.lineStyle(1, 0xFF4040, 0.7);
+      bgGfx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
     }
 
-    // ── 像素图标 ────────────────────────────────────────────
-    // 像素图标（内部已对可旋转建筑应用 setAngle(dir*90)）
+    // ── 像素图标（depth=3，含旋转） ──────────────────────────
     const iconGfx = drawBuildingIcon(this.scene, b, CELL, 3);
 
-    // ── 弹药箱：显示存弹量（像素字体） ─────────────────────
+    // ── 弹药箱存弹数字（depth=4） ────────────────────────────
     let ammoTxt: Phaser.GameObjects.Text | null = null;
     if (b.type === 'ammo_box') {
       ammoTxt = this.scene.add.text(cx, cy + 11, `${b.ammo}`, {
@@ -74,23 +69,22 @@ export class BuildingRenderer {
       }).setOrigin(0.5).setDepth(4);
     }
 
-    // ── 无弹药警告（像素 X 符号） ───────────────────────────
+    // ── 无弹药警告（像素 X，depth=5，默认隐藏） ─────────────
     let warnGfx: Phaser.GameObjects.Graphics | null = null;
     if (b.type === 'gun_tower') {
       warnGfx = this.scene.add.graphics().setDepth(5).setVisible(false);
-      // 2×2 像素 X 由两条对角线矩形组成
       const wx = px + CELL - 10, wy = py + 3;
       warnGfx.fillStyle(0xFF3030, 1);
       for (let i = 0; i < 5; i++) {
-        warnGfx.fillRect(wx + i, wy + i, 2, 2);        // 左上→右下
-        warnGfx.fillRect(wx + 4 - i, wy + i, 2, 2);   // 右上→左下
+        warnGfx.fillRect(wx + i,     wy + i, 2, 2);
+        warnGfx.fillRect(wx + 4 - i, wy + i, 2, 2);
       }
     }
 
-    // ── 血条（生产建筑和防御建筑） ──────────────────────────
+    // ── 血条（depth=3） ──────────────────────────────────────
     let hpBg:  Phaser.GameObjects.Graphics | null = null;
     let hpBar: Phaser.GameObjects.Graphics | null = null;
-    const showHp = !['conveyor','core','iron_ore_node','copper_ore_node'].includes(b.type);
+    const showHp = !['conveyor', 'core', 'iron_ore_node', 'copper_ore_node'].includes(b.type);
     if (showHp) {
       hpBg  = this.scene.add.graphics().setDepth(3);
       hpBar = this.scene.add.graphics().setDepth(3);
@@ -100,14 +94,13 @@ export class BuildingRenderer {
       hpBar.fillRect(px + 3, py + CELL - 7, CELL - 6, 4);
     }
 
-    this.visuals.set(b.id, { iconGfx, hpBg, hpBar, ammoTxt, warnGfx });
+    this.visuals.set(b.id, { bgGfx, iconGfx, hpBg, hpBar, ammoTxt, warnGfx });
   }
 
   refresh(b: Building): void {
     const v = this.visuals.get(b.id);
     if (!v) return;
 
-    // 血条
     if (v.hpBar) {
       const px = b.x * CELL, py = b.y * CELL;
       const ratio = b.health / b.maxHealth;
@@ -117,41 +110,39 @@ export class BuildingRenderer {
       v.hpBar.fillRect(px + 3, py + CELL - 7, Math.floor((CELL - 6) * ratio), 4);
     }
 
-    // 弹药箱存弹量
     if (v.ammoTxt && b.type === 'ammo_box') {
       v.ammoTxt.setText(`${b.ammo}`);
     }
 
-    // 无弹药警告
     if (v.warnGfx && b.type === 'gun_tower') {
       v.warnGfx.setVisible(b.noAmmo);
     }
   }
 
+  /** 移除建筑视觉：destroy 所有独立对象，不写任何覆盖像素 */
   remove(b: Building): void {
     const v = this.visuals.get(b.id);
     if (!v) return;
-    v.iconGfx?.destroy(); v.ammoTxt?.destroy();
-    v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
+    v.bgGfx.destroy();
+    v.iconGfx?.destroy();
+    v.ammoTxt?.destroy();
+    v.warnGfx?.destroy();
+    v.hpBg?.destroy();
+    v.hpBar?.destroy();
     this.visuals.delete(b.id);
-
-    // 擦除格子，用与 GridRenderer 完全相同的颜色还原
-    const px = b.x * CELL, py = b.y * CELL;
-    const isPath = this.pathSet.has(`${b.x},${b.y}`);
-    this.gfxBuilding.fillStyle(isPath ? GRID_COLOR_PATH : GRID_COLOR_BG, 1);
-    this.gfxBuilding.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    this.gfxBuilding.lineStyle(1, GRID_COLOR_LINE, 1);
-    this.gfxBuilding.strokeRect(px, py, CELL, CELL);
   }
 
   clearAll(): void {
     for (const [, v] of this.visuals) {
-      v.iconGfx?.destroy(); v.ammoTxt?.destroy();
-      v.warnGfx?.destroy(); v.hpBg?.destroy(); v.hpBar?.destroy();
+      v.bgGfx.destroy();
+      v.iconGfx?.destroy();
+      v.ammoTxt?.destroy();
+      v.warnGfx?.destroy();
+      v.hpBg?.destroy();
+      v.hpBar?.destroy();
     }
     this.visuals.clear();
-    this.gfxBuilding.clear();
   }
 
-  destroy(): void { this.clearAll(); this.gfxBuilding.destroy(); }
+  destroy(): void { this.clearAll(); }
 }
