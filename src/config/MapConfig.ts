@@ -6,25 +6,31 @@
  */
 
 // ── 网格与像素 ──────────────────────────────────────────────────
-export const CELL   = 50;               // 每格像素大小
-export const GRID_W = 10;              // 网格列数
-export const GRID_H = 10;              // 网格行数
-export const CANVAS_W = CELL * GRID_W; // 画布宽度（px）
-export const CANVAS_H = CELL * GRID_H; // 画布高度（px）
+export const CELL   = 24;               // 每格像素大小（32×32格 × 24px = 768px 画布）
+export const GRID_W = 32;              // 网格列数
+export const GRID_H = 32;              // 网格行数
+export const CANVAS_W = CELL * GRID_W; // 画布宽度（768px）
+export const CANVAS_H = CELL * GRID_H; // 画布高度（768px）
 
 // ── 核心建筑位置（路径终点） ────────────────────────────────────
-export const CORE_X = 9;
-export const CORE_Y = 7;
+// 核心放在右侧偏下，给玩家留出左半部分建造工厂
+export const CORE_X = 29;
+export const CORE_Y = 22;
 
 // ── 敌人预设路径（格坐标节点，顺序即行进顺序） ─────────────────
-// 修改此数组可改变敌人入侵路线，首个节点为刷新点，末节点须与核心位置一致。
+// 32×32 地图上的 S 形入侵路线：
+//   从左侧中部入场 → 向右穿越上半区 → 折向下 → 向左穿越中部 → 折向下 → 向右到核心
+// 这条路线经过地图大部分区域，玩家需要在多个位置布防。
 export const ENEMY_PATH: { x: number; y: number }[] = [
-  { x: 0, y: 5 },  // 入侵起点（地图左侧）
-  { x: 3, y: 5 },  // 向右
-  { x: 3, y: 2 },  // 向上
-  { x: 7, y: 2 },  // 向右
-  { x: 7, y: 7 },  // 向下
-  { x: 9, y: 7 },  // 终点（核心）
+  { x: 0,  y: 8  },  // 入侵起点（左侧上部）
+  { x: 12, y: 8  },  // 向右穿越上区
+  { x: 12, y: 14 },  // 向下
+  { x: 4,  y: 14 },  // 向左折回
+  { x: 4,  y: 22 },  // 向下穿越中区
+  { x: 20, y: 22 },  // 向右
+  { x: 20, y: 16 },  // 向上
+  { x: 29, y: 16 },  // 向右穿越
+  { x: 29, y: 22 },  // 向下到核心
 ];
 
 // ── 方向编码（内部使用，不建议直接修改） ───────────────────────

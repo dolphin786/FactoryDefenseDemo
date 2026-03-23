@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CORE_X, CORE_Y } from '../config/GameConfig';
+import { CORE_X, CORE_Y, CELL } from '../config/GameConfig';
 import { LEVEL_CONFIGS, STARTER_DECKS } from '../config/LevelConfig';
 import { CARD_DEF_MAP } from '../config/CardConfig';
 import { GameState } from '../model/GameState';
@@ -279,14 +279,14 @@ export class GameScene extends Phaser.Scene {
     this.gs.coreHealth = Math.max(0, this.gs.coreHealth - damage);
     this.cameras.main.flash(200, 180, 0, 0);
     this.cameras.main.shake(150, 0.008);
-    this.effectRenderer.spawnDamage(CORE_X * 50 + 25, CORE_Y * 50 + 25);
+    this.effectRenderer.spawnDamage(CORE_X * CELL + CELL / 2, CORE_Y * CELL + CELL / 2);
     this.hud.updateCoreHp(this.gs);
     if (this.gs.coreHealth <= 0) this.triggerDefeat();
   }
 
   private onBuildingDestroyed(b: Building): void {
     this.buildingRenderer.remove(b);
-    this.effectRenderer.spawnExplosion(b.x * 50 + 25, b.y * 50 + 25);
+    this.effectRenderer.spawnExplosion(b.x * CELL + CELL / 2, b.y * CELL + CELL / 2);
     this.gridRenderer.draw();
   }
 
