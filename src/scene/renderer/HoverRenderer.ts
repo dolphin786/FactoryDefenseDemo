@@ -25,11 +25,12 @@ export class HoverRenderer {
 
   onPointerMove(ptr: Phaser.Input.Pointer, gs: GameState): void {
     this.lastPtr = ptr;
-    this._render(ptr.x, ptr.y, gs);
+    // worldX/worldY：已经过 Phaser Scale.FIT 逆变换，对应画布逻辑坐标
+    this._render(ptr.worldX, ptr.worldY, gs);
   }
 
   refresh(gs: GameState): void {
-    if (this.lastPtr) this._render(this.lastPtr.x, this.lastPtr.y, gs);
+    if (this.lastPtr) this._render(this.lastPtr.worldX, this.lastPtr.worldY, gs);
   }
 
   /** 创建一个临时 Graphics 并注册到管理数组 */

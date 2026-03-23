@@ -201,8 +201,9 @@ export class GameScene extends Phaser.Scene {
   // ── 输入处理 ──
 
   private onPtrDown(ptr: Phaser.Input.Pointer): void {
-    const gx = Math.floor(ptr.x / 50);
-    const gy = Math.floor(ptr.y / 50);
+    // 用 worldX/worldY：Phaser 已将屏幕坐标反算回画布逻辑坐标（处理 Scale.FIT 缩放）
+    const gx = Math.floor(ptr.worldX / CELL);
+    const gy = Math.floor(ptr.worldY / CELL);
 
     if (ptr.rightButtonDown()) {
       if (this.gs.selectedCard || this.gs.beltMode) {
