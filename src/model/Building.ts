@@ -6,7 +6,7 @@ import type { CardData } from './Card';
 export interface BeltItem {
   type: ResourceType;
   progress: number; // 0.0 → 1.0
-  qty?: number;     // 批量（如子弹5发作为1个item传输）
+  qty?: number;     // 批量（子弹5发作为1个item传输）
 }
 
 /** 机器输入缓冲 */
@@ -22,52 +22,50 @@ export class Building {
   maxHealth: number;
   sourceCard: CardData | null;
 
-  // 生产计时器（矿节点/熔炉/组装机）
-  prodTimer = 0;
-  // 上次输出矿种（熔炉/多variant机器交替逻辑）
+  // ── 生产 ─────────────────────────────────────────────────────
+  prodTimer  = 0;
   lastOutput: string | null = null;
 
-  // 传送带槽位
-  item: BeltItem | null = null;
+  // ── 传送带槽位 ───────────────────────────────────────────────
+  item:  BeltItem | null = null;
 
-  // 机器输入缓冲
-  inputBuf: InputBuf = {};
-
-  // 炮塔
-  fireCooldown = 0;
-  noAmmo = false;
-
+  // ── 多格建筑 ─────────────────────────────────────────────────
   /**
-   * 分流器共享状态（仅 splitter_a 使用，splitter_b 通过 pairId 查 a）
-   *   itemB:          副格（splitter_b 对应位置）的输入槽
-   *   outToggle:      下次优先输出到哪侧（0=a侧/上, 1=b侧/下），交替
+   * 副格（multiblock_body）指向其锚点建筑 id。
+   * 锚点格本身为 null。
    */
-  itemB: BeltItem | null = null;
-  outToggle = 0;
+  anchorId: number | null = null;
 
-  // 配对 id：分流器 a↔b 互记，地下传送带 in↔out 互记
+  /** 地下传送带 in↔out 配对 id */
   pairId: number | null = null;
 
-  // 弹药箱
-  ammo = 0;
+  /**
+   * 分流器：
+   *   itemB    — 副格的输入槽，由锚点格统一管理
+   *   outToggle — 下次优先输出到哪个出口（0/1 交替）
+   */
+  itemB:     BeltItem | null = null;
+  outToggle  = 0;
+
+  // ── 机器输入缓冲 ─────────────────────────────────────────────
+  inputBuf: InputBuf = {};
+
+  // ── 炮塔 ─────────────────────────────────────────────────────
+  fireCooldown = 0;
+  noAmmo       = false;
+
+  // ── 弹药箱 ───────────────────────────────────────────────────
+  ammo   = 0;
   readonly ammoMax = AMMO_BOX_CAPACITY;
 
   constructor(
-    id: number,
-    x: number,
-    y: number,
-    type: BuildingType,
-    dir: number,
-    health: number,
-    sourceCard: CardData | null,
+    id: number, x: number, y: number,
+    type: BuildingType, dir: number,
+    health: number, sourceCard: CardData | null,
   ) {
-    this.id = id;
-    this.x = x;
-    this.y = y;
-    this.type = type;
-    this.dir = dir;
-    this.health = health;
-    this.maxHealth = health;
+    this.id = id; this.x = x; this.y = y;
+    this.type = type; this.dir = dir;
+    this.health = health; this.maxHealth = health;
     this.sourceCard = sourceCard;
   }
 

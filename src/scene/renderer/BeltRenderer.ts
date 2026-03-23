@@ -21,7 +21,7 @@ export class BeltRenderer {
     g.clear();
 
     const BELT_TYPES = new Set([
-      'conveyor', 'splitter_a', 'splitter_b',
+      'conveyor', 'splitter', 'multiblock_body',
       'underground_in', 'underground_out',
     ]);
 
@@ -34,11 +34,9 @@ export class BeltRenderer {
       }
 
       // splitter_a 的副槽（b.itemB）：渲染在 b 格位置
-      // 找到 b 格坐标：需要知道 pairId 对应的 splitter_b
-      // 简化：直接从 itemB 的存在推断位置（itemB 对应 b 格，即 dir 垂直方向的相邻格）
-      // 由于 splitter_b 的位置在 a 的垂直方向，用 dir 反推
-      if (b.type === 'splitter_a' && b.itemB != null) {
-        // a 格是 splitter_a，b 格在垂直 dir 方向的下一格
+      // 分流器锚点格：itemB 对应 body 格的输入，渲染在 body 格位置
+      if (b.type === 'splitter' && b.itemB != null) {
+        // body 格相对锚点的偏移：dir=右/左→下方(+y)，dir=下/上→右侧(+x)
         const [bx, by] = (b.dir === 0 || b.dir === 2)
           ? [b.x, b.y + 1]
           : [b.x + 1, b.y];

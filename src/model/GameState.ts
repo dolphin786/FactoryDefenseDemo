@@ -1,5 +1,6 @@
 import { GRID_W, GRID_H, CORE_X, CORE_Y } from '../config/GameConfig';
 import { BUILDING_CONFIGS } from '../config/BuildingConfig';
+import { getOccupiedCells } from '../utils/MultiBlockUtils';
 import { LEVEL_CONFIGS } from '../config/LevelConfig';
 import { Building } from './Building';
 import { Enemy } from './Enemy';
@@ -97,14 +98,111 @@ export class GameState {
   removeBuilding(x: number, y: number): Building | null {
     const b = this.getCell(x, y);
     if (!b || b.type === 'core') return null;
-    this.grid[y][x] = null;
-    this.buildings = this.buildings.filter(bb => bb.id !== b.id);
-    return b;
+    // 如果是多格建筑，通过锚点移除所有格子
+    const anchor = b.type === 'multiblock_body' && b.anchorId != null
+      ? this.buildings.find(bb => bb.id === b.anchorId) ?? b
+      : b;
+    return this.removeByAnchor(anchor);
+  }
+
+  /**
+   * 通过锚点建筑移除整个多格建筑（或单格建筑）。
+   * 返回锚点建筑对象（已从 grid/buildings 中移除）。
+   */
+  removeByAnchor(anchor: Building): Building | null {
+    if (anchor.type === 'core') return null;
+    const cfg = BUILDING_CONFIGS[anchor.type];
+    if (cfg.cells && cfg.cells.length > 1) {
+      // 多格：移除所有 body 格子
+      const occupied = getOccupiedCells(anchor.x, anchor.y, cfg.cells, anchor.dir);
+      for (const cell of occupied) {
+        if (!this.inGrid(cell.x, cell.y)) continue;
+        const target = this.grid[cell.y][cell.x];
+        if (target) {
+          this.grid[cell.y][cell.x] = null;
+          this.buildings = this.buildings.filter(bb => bb.id !== target.id);
+        }
+      }
+    } else {
+      // 单格
+      this.grid[anchor.y][anchor.x] = null;
+      this.buildings = this.buildings.filter(bb => bb.id !== anchor.id);
+    }
+    return anchor;
   }
 
   destroyBuilding(b: Building): void {
-    this.grid[b.y][b.x] = null;
-    this.buildings = this.buildings.filter(bb => bb.id !== b.id);
+    // 战斗中建筑被摧毁：若是多格建筑锚点，也清除所有 body
+    const anchor = b.type === 'multiblock_body' && b.anchorId != null
+      ? this.buildings.find(bb => bb.id === b.anchorId) ?? b
+      : b;
+    const cfg = BUILDING_CONFIGS[anchor.type];
+    if (cfg.cells && cfg.cells.length > 1) {
+      const occupied = getOccupiedCells(anchor.x, anchor.y, cfg.cells, anchor.dir);
+      for (const cell of occupied) {
+        if (!this.inGrid(cell.x, cell.y)) continue;
+        const target = this.grid[cell.y][cell.x];
+        if (target) {
+          this.grid[cell.y][cell.x] = null;
+          this.buildings = this.buildings.filter(bb => bb.id !== target.id);
+        }
+      }
+    } else {
+      this.grid[anchor.y][anchor.x] = null;
+      this.buildings = this.buildings.filter(bb => bb.id !== anchor.id);
+    }
+  }
+
+  /**
+   * 放置多格建筑：
+   *   1. 检查所有格子是否都为空且在网格内
+   *   2. 创建锚点建筑（anchor）
+   *   3. 为每个 body 格创建 multiblock_body 建筑，anchorId 指向锚点
+   *   4. 返回 [anchor, ...bodies]；任一格被占则返回 null
+   */
+  placeMultiBuilding(
+    anchorX: number, anchorY: number,
+    type: Building['type'], dir: number,
+    sourceCard: CardData | null,
+  ): Building[] | null {
+    const cfg = BUILDING_CONFIGS[type];
+    if (!cfg.cells || cfg.cells.length <= 1) {
+      // 退回单格放置
+      const b = this.placeBuilding(anchorX, anchorY, type, dir, sourceCard);
+      return b ? [b] : null;
+    }
+
+    const occupied = getOccupiedCells(anchorX, anchorY, cfg.cells, dir);
+
+    // 检查所有格子
+    for (const cell of occupied) {
+      if (!this.inGrid(cell.x, cell.y)) return null;
+      if (this.grid[cell.y][cell.x] !== null) return null;
+      if (cell.x === CORE_X && cell.y === CORE_Y) return null;
+    }
+
+    // 创建锚点
+    const anchorCell = occupied.find(c => c.role === 'anchor')!;
+    const anchor = this.placeBuilding(anchorCell.x, anchorCell.y, type, dir, sourceCard)!;
+    const result: Building[] = [anchor];
+
+    // 创建 body 格
+    for (const cell of occupied) {
+      if (cell.role === 'anchor') continue;
+      const body = this.placeBuilding(cell.x, cell.y, 'multiblock_body', dir, null)!;
+      body.anchorId = anchor.id;
+      result.push(body);
+    }
+
+    return result;
+  }
+
+  /** 找到某建筑的锚点（若本身是锚点则返回自己） */
+  findAnchor(b: Building): Building {
+    if (b.type === 'multiblock_body' && b.anchorId != null) {
+      return this.buildings.find(bb => bb.id === b.anchorId) ?? b;
+    }
+    return b;
   }
 
   // ── 敌人 CRUD ──

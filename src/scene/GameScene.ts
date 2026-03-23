@@ -216,12 +216,23 @@ export class GameScene extends Phaser.Scene {
         if (hintEl) hintEl.style.display = 'none';
         this.cardMgr.render(this.gs);
       } else if (this.gs.inGrid(gx, gy) && this.gs.phase === 'prepare') {
-        const b = this.gs.removeBuilding(gx, gy);
-        if (b) {
-          this.buildingRenderer.remove(b);
-          this.gridRenderer.draw(); // 重绘路径
-          if (b.sourceCard) {
-            this.gs.hand.push(b.sourceCard);
+        const clicked = this.gs.getCell(gx, gy);
+        if (clicked) {
+          const anchor = this.gs.findAnchor(clicked);
+          // 在移除数据前，先收集所有需要移除视觉的建筑
+          const toRemoveVisuals: Building[] = [anchor];
+          // 收集所有 body 格（anchorId 指向 anchor.id）
+          const bodies = this.gs.buildings.filter(
+            b => b.anchorId === anchor.id && b.type === 'multiblock_body',
+          );
+          toRemoveVisuals.push(...bodies);
+          // 移除数据
+          this.gs.removeByAnchor(anchor);
+          // 移除所有视觉
+          for (const b of toRemoveVisuals) this.buildingRenderer.remove(b);
+          this.gridRenderer.draw();
+          if (anchor.sourceCard) {
+            this.gs.hand.push(anchor.sourceCard);
             this.cardMgr.render(this.gs);
           }
         }
@@ -241,7 +252,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.gs.beltTool === 'splitter') {
-      this.placeSplitter(gx, gy);
+      const placed = this.gs.placeMultiBuilding(gx, gy, 'splitter', this.gs.selectedDir, null);
+      if (placed) placed.forEach(b => this.buildingRenderer.add(b));
       return;
     }
 
@@ -300,8 +312,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onBuildingDestroyed(b: Building): void {
-    this.buildingRenderer.remove(b);
-    this.effectRenderer.spawnExplosion(b.x * CELL + CELL / 2, b.y * CELL + CELL / 2);
+    const anchor = this.gs.findAnchor(b);
+    // 收集所有格视觉（在 destroyBuilding 之前）
+    const bodies = this.gs.buildings.filter(bb => bb.anchorId === anchor.id);
+    this.buildingRenderer.remove(anchor);
+    for (const body of bodies) this.buildingRenderer.remove(body);
+    this.effectRenderer.spawnExplosion(anchor.x * CELL + CELL / 2, anchor.y * CELL + CELL / 2);
     this.gridRenderer.draw();
   }
 
@@ -378,43 +394,6 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.gs.paused = false;
       this.gs.timeSpeed = spd;
-    }
-  }
-
-  /**
-   * 分流器一步放置：一次点击同时放置 splitter_a 和 splitter_b。
-   *
-   * 分流器是 2×1 建筑，长边垂直于传送方向（dir）：
-   *   dir=0(右)/dir=2(左)：两格上下排列（同列，gy 和 gy+1）
-   *   dir=1(下)/dir=3(上)：两格左右排列（同行，gx 和 gx+1）
-   *
-   * 点击的格子是 splitter_a（主格），相邻格是 splitter_b（副格）。
-   * 两格均需为空。
-   */
-  private placeSplitter(gx: number, gy: number): void {
-    const dir = this.gs.selectedDir;
-    // 副格偏移：垂直于 dir 方向的下一格
-    // dir=右/左 → 副格在下方(+y)；dir=下/上 → 副格在右侧(+x)
-    const [bx, by] = (dir === 0 || dir === 2)
-      ? [gx, gy + 1]   // 水平传送 → 两格竖向排列
-      : [gx + 1, gy];  // 竖向传送 → 两格横向排列
-
-    if (!this.gs.inGrid(bx, by)) return;
-    if (this.gs.getCell(gx, gy) != null) return;
-    if (this.gs.getCell(bx, by) != null) return;
-    if ((gx === CORE_X && gy === CORE_Y) || (bx === CORE_X && by === CORE_Y)) return;
-
-    const a = this.gs.placeBuilding(gx, gy, 'splitter_a', dir, null);
-    const b = this.gs.placeBuilding(bx, by, 'splitter_b', dir, null);
-    if (a && b) {
-      a.pairId = b.id;
-      b.pairId = a.id;
-      this.buildingRenderer.add(a);
-      this.buildingRenderer.add(b);
-    } else {
-      // 回滚（理论上不会走到这里）
-      if (a) { this.gs.removeBuilding(gx, gy); }
-      if (b) { this.gs.removeBuilding(bx, by); }
     }
   }
 

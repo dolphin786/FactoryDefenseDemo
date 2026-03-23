@@ -4,6 +4,7 @@ import { BUILDING_CONFIGS, HAS_OUTPUT_DIR } from '../../config/BuildingConfig';
 import { DIR_NAMES } from '../../config/GameConfig';
 import type { GameState } from '../../model/GameState';
 import { drawBuildingIcon, drawConveyor } from './PixelIcons';
+import { getOccupiedCells } from '../../utils/MultiBlockUtils';
 
 /**
  * HoverRenderer — 鼠标悬停时的预览高亮（像素风）
@@ -62,6 +63,25 @@ export class HoverRenderer {
                      !(gx === gs.corePosX && gy === gs.corePosY);
 
     if (gs.beltMode || gs.selectedCard) {
+
+      if (gs.beltTool === 'splitter') {
+        // 分流器预览：多格，用 getOccupiedCells 计算
+        const cells = BUILDING_CONFIGS['splitter'].cells!;
+        const occupied = getOccupiedCells(gx, gy, cells, gs.selectedDir);
+        const allClear = occupied.every(c =>
+          gs.inGrid(c.x, c.y) && gs.getCell(c.x, c.y) == null &&
+          !(c.x === gs.corePosX && c.y === gs.corePosY),
+        );
+        const fc = allClear ? 0xFFB000 : 0xFF3030;
+        for (const cell of occupied) {
+          const px = cell.x * CELL, py = cell.y * CELL;
+          g.lineStyle(2, fc, 1); g.strokeRect(px+1,py+1,CELL-2,CELL-2);
+          g.fillStyle(0x2E6B4A, 0.3); g.fillRect(px+2,py+2,CELL-4,CELL-4);
+        }
+        this.updateHintBar(`SPLIT [${DIR_NAMES[gs.selectedDir]}]  R:ROTATE  RMB:EXIT`);
+        // 射程圈等后续处理省略
+      } else {
+
       const frameColor = canPlace ? 0xFFB000 : 0xFF3030;
       // 格子高亮边框
       g.lineStyle(2, frameColor, 1);
@@ -89,32 +109,63 @@ export class HoverRenderer {
             ? (card.resourceType === 'iron' ? 'iron_ore_node' : 'copper_ore_node')
             : card.buildingType!;
           const cfg = BUILDING_CONFIGS[btype];
+          const dir = gs.selectedDir;
 
-          // 建筑底色半透明
-          g.fillStyle(cfg.color, 0.3);
-          g.fillRect(gx * CELL + 2, gy * CELL + 2, CELL - 4, CELL - 4);
+          // 计算所有占用格（多格建筑）
+          const cells = cfg.cells ?? [{ dx: 0, dy: 0, role: 'anchor' as const }];
+          const occupied = getOccupiedCells(gx, gy, cells, dir);
 
-          // 像素建筑预览图标（用 tmpGfx 管理）
-          const iconG = drawBuildingIcon(
-            this.scene,
-            { type: btype, x: gx, y: gy, dir: gs.selectedDir },
-            CELL, 19,
+          // 检查所有格是否可放置
+          const allClear = occupied.every(c =>
+            gs.inGrid(c.x, c.y) &&
+            gs.getCell(c.x, c.y) == null &&
+            !(c.x === gs.corePosX && c.y === gs.corePosY),
           );
-          iconG.setAlpha(0.7);
-          this._tmpGfx.push(iconG); // 加入管理
 
-          // 有输出方向的建筑：图标已旋转，只更新 hint bar
+          // 为每个占用格绘制预览
+          for (const cell of occupied) {
+            const px = cell.x * CELL, py = cell.y * CELL;
+            const cellColor = allClear ? 0xFFB000 : 0xFF3030;
+
+            // 格子高亮边框
+            g.lineStyle(2, cellColor, 1);
+            g.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+            [[0,0],[CELL-4,0],[0,CELL-4],[CELL-4,CELL-4]].forEach(([ox, oy]) => {
+              g.fillStyle(cellColor, 0.9);
+              g.fillRect(px + 1 + ox, py + 1 + oy, 4, 4);
+            });
+
+            if (allClear) {
+              // 底色
+              g.fillStyle(cfg.color, 0.25);
+              g.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+
+              // 锚点格绘制完整图标，body 格绘制半透明灰色填充
+              if (cell.role === 'anchor') {
+                const iconG = drawBuildingIcon(
+                  this.scene,
+                  { type: btype, x: cell.x, y: cell.y, dir },
+                  CELL, 19,
+                );
+                iconG.setAlpha(0.7);
+                this._tmpGfx.push(iconG);
+              }
+              // body 格用淡色标记（已有底色）
+            }
+          }
+
           if (HAS_OUTPUT_DIR.includes(btype)) {
-            this.updateHintBar(`DIR: ${DIR_NAMES[gs.selectedDir]}  R:ROTATE  RMB:CANCEL`);
+            this.updateHintBar(`DIR: ${DIR_NAMES[dir]}  R:ROTATE  RMB:CANCEL`);
           }
 
           // 炮塔射程圈
-          if (btype === 'gun_tower') {
+          if (btype === 'gun_tower' && allClear) {
             g.lineStyle(1, 0xFF4040, 0.25);
-            g.strokeCircle(cx, cy, 3 * CELL);
+            g.strokeCircle(gx * CELL + CELL / 2, gy * CELL + CELL / 2, 3 * CELL);
           }
         }
       }
+      } // end else (non-splitter tools)
     }
 
     // 悬停在已放置的机枪塔上：射程圈
