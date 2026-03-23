@@ -17,8 +17,9 @@ export class BeltRenderer {
     const g = this.gfx;
     g.clear();
 
+    const BELT_TYPES = new Set(['conveyor', 'splitter', 'underground_in', 'underground_out']);
     for (const b of buildings) {
-      if (b.type !== 'conveyor' || b.item == null) continue;
+      if (!BELT_TYPES.has(b.type) || b.item == null) continue;
 
       const progress = Math.min(b.item.progress, 1.0);
       const cx = b.x * CELL + CELL / 2;

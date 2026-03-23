@@ -37,6 +37,12 @@ export class Building {
   fireCooldown = 0;
   noAmmo = false;
 
+  // 分流器：记录下次分流到哪侧（0=左 1=右，交替）
+  splitterToggle = 0;
+
+  // 地下传送带：配对 id（入口记录对应出口 id，出口记录对应入口 id）
+  undergroundPairId: number | null = null;
+
   // 弹药箱
   ammo = 0;
   readonly ammoMax = AMMO_BOX_CAPACITY;

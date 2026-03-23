@@ -53,8 +53,13 @@ export class GameState {
 
   // UI
   selectedCard: CardData | null = null;
-  beltMode = false;
+  /** 当前激活的工具：none=无, conveyor=传送带, splitter=分流器, underground=地下传送带 */
+  beltTool: 'none' | 'conveyor' | 'splitter' | 'underground' = 'none';
+  /** 向后兼容：beltMode 等价于 beltTool !== 'none' */
+  get beltMode(): boolean { return this.beltTool !== 'none'; }
   selectedDir = 0;
+  /** 地下传送带放置中：已放置的入口建筑（等待玩家点出口） */
+  undergroundPending: Building | null = null;
 
   // 波次生成队列
   spawnQueue: SpawnQueueItem[] = [];
@@ -147,9 +152,10 @@ export class GameState {
     this.enemies      = [];
     this.spawnQueue   = [];
     this.spawnTimer   = 0;
-    this.selectedCard = null;
-    this.beltMode     = false;
-    this.selectedDir  = 0;
+    this.selectedCard      = null;
+    this.beltTool          = 'none';
+    this.undergroundPending = null;
+    this.selectedDir       = 0;
     // buildings / grid 不动
   }
 

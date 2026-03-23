@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { CORE_X, CORE_Y, CELL } from '../config/GameConfig';
+import { DIR_NAMES } from '../config/GameConfig';
+import { UNDERGROUND_MAX_DIST } from '../config/BuildingConfig';
 import { LEVEL_CONFIGS, STARTER_DECKS } from '../config/LevelConfig';
 import { CARD_DEF_MAP } from '../config/CardConfig';
 import { GameState } from '../model/GameState';
@@ -208,7 +210,8 @@ export class GameScene extends Phaser.Scene {
     if (ptr.rightButtonDown()) {
       if (this.gs.selectedCard || this.gs.beltMode) {
         this.gs.selectedCard = null;
-        this.gs.beltMode = false;
+        this.gs.beltTool = 'none';
+        this.gs.undergroundPending = null;
         const hintEl = document.getElementById('hint-bar');
         if (hintEl) hintEl.style.display = 'none';
         this.cardMgr.render(this.gs);
@@ -228,11 +231,25 @@ export class GameScene extends Phaser.Scene {
 
     if (!this.gs.inGrid(gx, gy)) return;
 
-    if (this.gs.beltMode) {
+    // ── 工具放置 ────────────────────────────────────────────────
+    if (this.gs.beltTool === 'conveyor') {
       if (this.gs.getCell(gx, gy) == null && !(gx === CORE_X && gy === CORE_Y)) {
         const b = this.gs.placeBuilding(gx, gy, 'conveyor', this.gs.selectedDir, null);
         if (b) this.buildingRenderer.add(b);
       }
+      return;
+    }
+
+    if (this.gs.beltTool === 'splitter') {
+      if (this.gs.getCell(gx, gy) == null && !(gx === CORE_X && gy === CORE_Y)) {
+        const b = this.gs.placeBuilding(gx, gy, 'splitter', this.gs.selectedDir, null);
+        if (b) this.buildingRenderer.add(b);
+      }
+      return;
+    }
+
+    if (this.gs.beltTool === 'underground') {
+      this.placeUnderground(gx, gy);
       return;
     }
 
@@ -266,7 +283,7 @@ export class GameScene extends Phaser.Scene {
       if (el) el.style.display = 'none';
     } else {
       this.gs.selectedCard = card;
-      this.gs.beltMode = false;
+      this.gs.beltTool = 'none';
       this.gs.selectedDir = 0;
       const el = document.getElementById('hint-bar');
       if (el) { el.textContent = 'R键旋转方向 | 右键取消'; el.style.display = 'block'; }
@@ -367,14 +384,78 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  toggleBeltMode(): void {
-    this.gs.beltMode = !this.gs.beltMode;
+  /**
+   * 地下传送带两步放置逻辑：
+   *   第一步：放置入口（underground_in），记录到 undergroundPending
+   *   第二步：放置出口（underground_out），和入口配对
+   *   约束：入口和出口必须在同一行或同一列，方向相同，距离 1~UNDERGROUND_MAX_DIST 格
+   */
+  private placeUnderground(gx: number, gy: number): void {
+    const dir = this.gs.selectedDir;
+
+    if (!this.gs.undergroundPending) {
+      // 第一步：放入口
+      if (this.gs.getCell(gx, gy) != null) return;
+      const inlet = this.gs.placeBuilding(gx, gy, 'underground_in', dir, null);
+      if (inlet) {
+        this.gs.undergroundPending = inlet;
+        this.buildingRenderer.add(inlet);
+        const el = document.getElementById('hint-bar');
+        if (el) el.textContent = '已放置入口，点击同行/列放置出口 | 右键取消';
+      }
+    } else {
+      // 第二步：放出口
+      const inlet = this.gs.undergroundPending;
+      // 验证：同行或同列
+      const sameRow = gy === inlet.y;
+      const sameCol = gx === inlet.x;
+      if (!sameRow && !sameCol) return;
+      // 验证：方向一致
+      if (dir !== inlet.dir) return;
+      // 验证：方向和偏移一致（出口在入口的前进方向一侧）
+      const dx = gx - inlet.x, dy = gy - inlet.y;
+      const dist = Math.abs(dx) + Math.abs(dy);
+      if (dist < 1 || dist > UNDERGROUND_MAX_DIST) return;
+      // 方向匹配：dir=0右则dx>0，dir=1下则dy>0，dir=2左则dx<0，dir=3上则dy<0
+      const dirCheck = [dx > 0, dy > 0, dx < 0, dy < 0][dir];
+      if (!dirCheck) return;
+
+      if (this.gs.getCell(gx, gy) != null) return;
+      const outlet = this.gs.placeBuilding(gx, gy, 'underground_out', dir, null);
+      if (outlet) {
+        inlet.undergroundPairId  = outlet.id;
+        outlet.undergroundPairId = inlet.id;
+        this.buildingRenderer.add(outlet);
+        this.gs.undergroundPending = null;
+        const el = document.getElementById('hint-bar');
+        if (el) el.textContent = `UNDERGROUND [${DIR_NAMES[dir]}]  R:ROTATE  RMB:CANCEL`;
+      }
+    }
+  }
+
+  /** 激活某个工具，再次点击同一工具则取消 */
+  activateTool(tool: 'conveyor' | 'splitter' | 'underground'): void {
+    const next = this.gs.beltTool === tool ? 'none' : tool;
+    this.gs.beltTool = next;
     this.gs.selectedCard = null;
     this.gs.selectedDir = 0;
+    this.gs.undergroundPending = null;
     const el = document.getElementById('hint-bar');
-    if (el) el.style.display = this.gs.beltMode ? 'block' : 'none';
+    if (el) el.style.display = next !== 'none' ? 'block' : 'none';
+    // 更新工具按钮高亮
+    this.updateToolBtns();
     this.cardMgr.render(this.gs);
   }
+
+  private updateToolBtns(): void {
+    const t = this.gs.beltTool;
+    document.getElementById('belt-btn')?.classList.toggle('active', t === 'conveyor');
+    document.getElementById('splitter-btn')?.classList.toggle('active', t === 'splitter');
+    document.getElementById('underground-btn')?.classList.toggle('active', t === 'underground');
+  }
+
+  /** 向后兼容旧接口 */
+  toggleBeltMode(): void { this.activateTool('conveyor'); }
 
   // ── 波次提示 ──
   private showWaveAnnounce(text: string): void {

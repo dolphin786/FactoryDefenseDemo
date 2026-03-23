@@ -1,4 +1,5 @@
 import { ENEMY_PATH } from '../config/GameConfig';
+import { CORE_CONTACT_DAMAGE } from '../config/BalanceConfig';
 import { resolveEnemyCfg } from '../config/EnemyConfig';
 import type { EnemyType } from '../config/EnemyConfig';
 import { Enemy } from '../model/Enemy';
@@ -90,6 +91,10 @@ export class EnemySystem {
       if (e.atkCooldown <= 0) {
         e.atkCooldown = e.atkSpd;
         this.onCoreAttacked(e.damage);
+        // 核心反伤：攻击核心的敌人受到反伤
+        if (CORE_CONTACT_DAMAGE > 0) {
+          e.takeDamage(CORE_CONTACT_DAMAGE);
+        }
       }
       return;
     }

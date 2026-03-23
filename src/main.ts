@@ -29,6 +29,7 @@ game.events.on('ready', () => {
 const w = window as unknown as Record<string, unknown>;
 w['startDefense']  = () => gameScene?.startDefense();
 w['toggleBeltMode']= () => gameScene?.toggleBeltMode();
+w['activateTool']  = (tool: string) => gameScene?.activateTool(tool as 'conveyor' | 'splitter' | 'underground');
 w['setSpeed']      = (spd: number) => {
   gameScene?.setTimeSpeed(spd);
   updateSpeedBtns(spd);

@@ -220,6 +220,64 @@ export function drawCore(g: G, cx: number, cy: number, s: number): void {
   });
 }
 
+// ── 分流器 ───────────────────────────────────────────────────────
+// 视觉：一条入线分叉成左右两条出线（Y 字形）
+export function drawSplitter(g: G, cx: number, cy: number, s: number): void {
+  const u = s / 32;
+  // 入线（从左进，dir=0 向右为标准方向）
+  g.fillStyle(C.amber, 1);
+  g.fillRect(cx - 10*u, cy - 2*u, 10*u, 4*u);      // 入线主干
+  // 出线分叉（右侧分出上下两条）
+  g.fillRect(cx,        cy - 2*u, 10*u, 4*u);        // 向右主干
+  g.fillRect(cx + 4*u, cy - 8*u,  4*u, 6*u);         // 右上分支
+  g.fillRect(cx + 4*u, cy + 2*u,  4*u, 6*u);         // 右下分支
+  // 分叉节点
+  g.fillStyle(0xFFFFAA, 1);
+  g.fillRect(cx + 2*u, cy - 2*u, 4*u, 4*u);
+  // 出口箭头（小三角，用矩形模拟）
+  g.fillStyle(C.amber, 1);
+  g.fillRect(cx + 10*u, cy - 8*u, 2*u, 4*u);
+  g.fillRect(cx + 10*u, cy + 4*u, 2*u, 4*u);
+}
+
+// ── 地下传送带入口 ────────────────────────────────────────────────
+// 视觉：向下的实心箭头，周围有虚线框表示入地
+export function drawUndergroundIn(g: G, cx: number, cy: number, s: number): void {
+  const u = s / 32;
+  // 底部暗色背景（地下感）
+  g.fillStyle(0x1a1040, 0.8);
+  g.fillRect(cx - 10*u, cy - 10*u, 20*u, 20*u);
+  // 向右进入的箭头（dir=0标准朝向）
+  g.fillStyle(0x8888FF, 1);
+  g.fillRect(cx - 8*u, cy - 2*u, 12*u, 4*u);        // 箭杆
+  g.fillRect(cx + 4*u, cy - 6*u, 6*u, 12*u);         // 箭头竖
+  g.fillRect(cx + 6*u, cy - 4*u, 4*u, 8*u);
+  g.fillRect(cx + 8*u, cy - 2*u, 2*u, 4*u);
+  // 下潜指示（底部小点）
+  g.fillStyle(0x8888FF, 0.5);
+  for (let i = -3; i <= 3; i += 2) {
+    g.fillRect(cx + i*u, cy + 7*u, 2*u, 2*u);
+  }
+}
+
+// ── 地下传送带出口 ────────────────────────────────────────────────
+export function drawUndergroundOut(g: G, cx: number, cy: number, s: number): void {
+  const u = s / 32;
+  g.fillStyle(0x1a1040, 0.8);
+  g.fillRect(cx - 10*u, cy - 10*u, 20*u, 20*u);
+  // 从地下冒出的箭头（颜色更亮）
+  g.fillStyle(0xAABBFF, 1);
+  g.fillRect(cx - 4*u, cy - 2*u, 12*u, 4*u);
+  g.fillRect(cx + 4*u, cy - 6*u, 6*u, 12*u);
+  g.fillRect(cx + 6*u, cy - 4*u, 4*u, 8*u);
+  g.fillRect(cx + 8*u, cy - 2*u, 2*u, 4*u);
+  // 冒出指示（顶部小点）
+  g.fillStyle(0xAABBFF, 0.5);
+  for (let i = -3; i <= 3; i += 2) {
+    g.fillRect(cx + i*u, cy - 9*u, 2*u, 2*u);
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  敌人图标（画在圆形底色之上）
 // ════════════════════════════════════════════════════════════════
@@ -294,6 +352,9 @@ export const BUILDING_DRAW_FN: Record<string, DrawFn> = {
   wall:            drawWall,
   ammo_box:        drawAmmoBox,
   core:            drawCore,
+  splitter:        drawSplitter,
+  underground_in:  drawUndergroundIn,
+  underground_out: drawUndergroundOut,
   // conveyor 单独处理（需要 dir 参数）
 };
 
@@ -332,7 +393,7 @@ export function drawBuildingIcon(
   // 对有明确朝向的建筑应用整体旋转
   // 矿节点图标是对称山形，旋转无视觉意义，不旋转
   // conveyor 内部已按 dir 绘制，不旋转
-  const ROTATABLE = ['furnace', 'assembler', 'gun_tower'];
+  const ROTATABLE = ['furnace', 'assembler', 'gun_tower', 'splitter', 'underground_in', 'underground_out'];
   if (ROTATABLE.includes(b.type)) {
     g.setAngle(b.dir * 90);
   }

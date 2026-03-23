@@ -297,8 +297,8 @@ body {
 #start-btn:hover { filter: brightness(1.2); box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #1fff00, 0 0 20px var(--green)50; }
 #start-btn:active { box-shadow: inset 2px 2px 0 #000, inset -2px -2px 0 #1fff00; }
 
-/* 传送带按钮 */
-#belt-btn {
+/* 传送带/分流器/地下传送带工具按钮 */
+#belt-btn, #splitter-btn, #underground-btn {
   font-family: var(--font-px);
   font-size: 7px;
   background: var(--bg3);
@@ -307,14 +307,14 @@ body {
   padding: 8px 6px;
   cursor: pointer;
   min-width: 46px;
-  max-width: 50px;
+  max-width: 52px;
   text-align: center;
   flex-shrink: 0;
   line-height: 1.6;
   box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
 }
-#belt-btn:hover  { filter: brightness(1.25); }
-#belt-btn.active {
+#belt-btn:hover, #splitter-btn:hover, #underground-btn:hover { filter: brightness(1.25); }
+#belt-btn.active, #splitter-btn.active, #underground-btn.active {
   color: var(--amber);
   border-color: var(--amber);
   background: #1a1200;
@@ -585,7 +585,9 @@ body {
 
   <!-- ── 卡牌栏 ── -->
   <div id="card-bar">
-    <button id="belt-btn" onclick="toggleBeltMode()">BELT<br>&gt;&gt;</button>
+    <button id="belt-btn"        onclick="activateTool('conveyor')">BELT<br>&gt;&gt;</button>
+    <button id="splitter-btn"    onclick="activateTool('splitter')">SPLIT<br>⑂</button>
+    <button id="underground-btn" onclick="activateTool('underground')">UGND<br>▼▲</button>
     <div id="hand-cards" style="display:flex;gap:6px;align-items:center;"></div>
     <button id="start-btn" onclick="startDefense()">[ START<br>DEFENSE ]</button>
   </div>
