@@ -6,7 +6,7 @@
 <title>工厂守卫战</title>
 <!-- 像素字体：Press Start 2P（英文数字）+ ZCOOL QingKe HuangYou（中文） -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+SC:wght@400;600;700&family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
 <style>
 /* ─── 全局变量 ─────────────────────────────── */
 :root {
@@ -20,33 +20,38 @@
   --amber:    #ffb000;   /* 琥珀黄 */
   --red:      #ff3030;
   --blue:     #00bfff;
-  --dimtext:  #666;
-  --text:     #ccc;
+  --dimtext:  #a0a0a0;
+  --text:     #e2e2e2;
   --white:    #eee;
-  /* 像素字体 */
+  /* 字体体系：pixel 用于强调，ui 用于可读文本 */
   --font-px:  'Press Start 2P', monospace;
-  --font-cn:  'ZCOOL QingKe HuangYou', 'Microsoft YaHei', sans-serif;
+  --font-cn:  'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-ui:  'Noto Sans SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
 
 /* ─── 重置 ───────────────────────────────── */
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
   background: var(--bg);
-  font-family: var(--font-cn);
+  font-family: var(--font-ui);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   height: 100vh;
+  width: 100vw;
   user-select: none;
+  color: var(--text);
   /* CRT 扫描线叠层 */
   background-image: repeating-linear-gradient(
     0deg,
     transparent,
     transparent 2px,
-    rgba(0,0,0,0.18) 2px,
-    rgba(0,0,0,0.18) 4px
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
   );
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* ─── 像素边框 mixin（用 box-shadow 模拟 2px 外描边） ─── */
@@ -59,8 +64,9 @@ body {
 
 /* ─── 像素按钮 ───────────────────────────── */
 .px-btn {
-  font-family: var(--font-px);
-  font-size: 9px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
   background: var(--bg3);
   color: var(--text);
   border: 2px solid var(--border);
@@ -88,8 +94,8 @@ body {
 #game-container {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 800px; /* 768px 画布 + 少量边距 */
+  width: 100vw;
+  max-width: none;
   height: 100vh;
 }
 
@@ -102,7 +108,7 @@ body {
   align-items: stretch;
   gap: 0;
   flex-shrink: 0;
-  height: 38px;
+  height: 46px;
   overflow: hidden;
 }
 
@@ -113,8 +119,9 @@ body {
   gap: 6px;
   padding: 0 10px;
   border-right: 2px solid var(--border2);
-  font-family: var(--font-px);
-  font-size: 8px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
   white-space: nowrap;
 }
 .info-cell .label { color: var(--dimtext); }
@@ -127,8 +134,9 @@ body {
 @keyframes blink { 50% { opacity: 0; } }
 
 #phase-badge {
-  font-family: var(--font-px);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
   padding: 2px 6px;
   border: 2px solid;
   letter-spacing: 1px;
@@ -147,13 +155,18 @@ body {
 /* ─── 游戏画布区 ─────────────────────────── */
 #game-area {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: grid;
+  place-items: center;
   background: var(--bg);
   overflow: hidden;
   min-height: 0;
   position: relative;
+  padding: 8px;
+}
+
+#game-area canvas {
+  display: block;
+  margin: 0 auto !important;
 }
 
 /* ─── 资源栏 ─────────────────────────────── */
@@ -166,7 +179,7 @@ body {
   align-items: center;
   gap: 0;
   flex-shrink: 0;
-  height: 26px;
+  height: 34px;
   overflow: hidden;
 }
 
@@ -176,12 +189,13 @@ body {
   gap: 4px;
   padding: 0 10px;
   border-right: 1px solid var(--border2);
-  font-family: var(--font-px);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
   white-space: nowrap;
 }
 .res-item .res-icon {
-  width: 8px; height: 8px;
+  width: 10px; height: 10px;
   display: inline-block;
   border: 1px solid rgba(255,255,255,0.3);
   flex-shrink: 0;
@@ -205,15 +219,37 @@ body {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  height: 116px;
+  min-height: 116px;
+}
+
+/* 仅手牌区可横向滚动，底部工具与开始按钮固定 */
+#deck-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
-  min-height: 88px;
-  /* 隐藏滚动条但仍可滚动 */
+  overflow-y: visible;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: var(--border) var(--bg2);
 }
-#card-bar::-webkit-scrollbar { height: 4px; }
-#card-bar::-webkit-scrollbar-track { background: var(--bg2); }
-#card-bar::-webkit-scrollbar-thumb { background: var(--border); }
+#deck-scroll::-webkit-scrollbar { height: 4px; }
+#deck-scroll::-webkit-scrollbar-track { background: var(--bg2); }
+#deck-scroll::-webkit-scrollbar-thumb { background: var(--border); }
+#hand-cards {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: 90px;
+  padding-right: 6px;
+}
 
 /* 卡牌 */
 .card {
@@ -221,11 +257,17 @@ body {
   border: 2px solid var(--border);
   padding: 5px 4px 4px;
   cursor: pointer;
-  min-width: 58px;
-  max-width: 62px;
+  min-width: 84px;
+  max-width: 92px;
+  height: 90px;
   text-align: center;
   flex-shrink: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
   box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
   transition: filter 0.05s;
   image-rendering: pixelated;
@@ -248,45 +290,76 @@ body {
 .card.def.selected  { border-color: var(--red);   }
 .card.sto.selected  { border-color: var(--amber); }
 
+/* 卡牌角色标签 */
+.card .card-role {
+  display: inline-block;
+  position: absolute; top: 1px; right: 1px;
+  font-family: var(--font-px);
+  font-size: 4px;
+  padding: 1px 2px;
+  color: #fff;
+  border-radius: 1px;
+  letter-spacing: 0px;
+  z-index: 10;
+}
+
 /* 卡牌内的像素图标（16×16 色块组合） */
 .card .card-icon-wrap {
   width: 32px; height: 32px;
   margin: 0 auto 3px;
   display: flex; align-items: center; justify-content: center;
   position: relative;
+  flex-shrink: 0;
 }
 .card .cname {
-  font-family: var(--font-px);
-  font-size: 6px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text);
-  line-height: 1.4;
-  letter-spacing: 0.5px;
+  line-height: 1.2;
+  letter-spacing: 0.2px;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card .cdesc {
-  font-family: var(--font-cn);
-  font-size: 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--dimtext);
-  margin-top: 1px;
+  margin-top: 3px;
+  line-height: 1.2;
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 .card .cdur {
   position: absolute;
   top: 2px; right: 3px;
-  font-family: var(--font-px);
-  font-size: 6px;
+  font-family: var(--font-ui);
+  font-size: 8px;
+  font-weight: 700;
   color: var(--amber);
 }
 
 /* 开始防御按钮 */
 #start-btn {
-  font-family: var(--font-px);
-  font-size: 9px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
   background: #001a00;
   color: var(--green);
   border: 2px solid var(--green);
   padding: 10px 14px;
   cursor: pointer;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 0;
   white-space: nowrap;
   letter-spacing: 1px;
   box-shadow: inset -2px -2px 0 #000, inset 2px 2px 0 #1fff00,
@@ -299,15 +372,16 @@ body {
 
 /* 传送带/分流器/地下传送带工具按钮 */
 #belt-btn, #splitter-btn, #underground-btn {
-  font-family: var(--font-px);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
   background: var(--bg3);
   color: var(--dimtext);
   border: 2px solid var(--border);
   padding: 8px 6px;
   cursor: pointer;
-  min-width: 46px;
-  max-width: 52px;
+  min-width: 60px;
+  max-width: 72px;
   text-align: center;
   flex-shrink: 0;
   line-height: 1.6;
@@ -338,20 +412,21 @@ body {
               0 0 40px rgba(0,191,255,0.15);
   padding: 24px 28px;
   text-align: center;
-  max-width: 520px;
+  max-width: 760px;
   width: 94%;
   color: var(--text);
 }
 #dialog h2 {
-  font-family: var(--font-px);
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: 18px;
+  font-weight: 700;
   margin-bottom: 14px;
   letter-spacing: 2px;
   text-shadow: 0 0 10px currentColor;
 }
 #dialog p {
   font-family: var(--font-cn);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--dimtext);
   margin: 6px 0;
   line-height: 1.5;
@@ -382,21 +457,22 @@ body {
   /* 不用 emoji，留给 Phaser 或 CSS 图标；暂保留 */
 }
 .choice-card .cnm {
-  font-family: var(--font-px);
-  font-size: 7px; margin-top: 6px; color: var(--text);
-  letter-spacing: 0.5px;
+  font-family: var(--font-ui);
+  font-size: 11px; margin-top: 6px; color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.2px;
 }
 
 /* 起始卡组 */
 .starter-decks {
-  display: flex; gap: 10px; margin: 14px 0;
+  display: flex; gap: 16px; margin: 18px 0;
   justify-content: center; flex-wrap: wrap;
 }
 .starter-deck {
   background: var(--bg3);
   border: 2px solid var(--border);
-  padding: 14px 12px;
-  cursor: pointer; width: 140px; text-align: center;
+  padding: 18px 16px;
+  cursor: pointer; width: 220px; text-align: center;
   box-shadow: inset -2px -2px 0 #000, inset 1px 1px 0 #555;
 }
 .starter-deck:hover {
@@ -405,27 +481,41 @@ body {
               0 0 12px rgba(255,255,255,0.1);
 }
 .starter-deck .dk-icon {
-  font-family: var(--font-px);
-  font-size: 18px; margin-bottom: 8px; display: block;
+  font-family: var(--font-ui);
+  font-size: 22px; margin-bottom: 10px; display: block;
 }
 .starter-deck .dk-name {
-  font-family: var(--font-px);
-  font-size: 8px; font-weight: normal;
-  color: var(--white); margin-bottom: 4px; letter-spacing: 0.5px;
+  font-family: var(--font-ui);
+  font-size: 11px; font-weight: normal;
+  color: var(--white); margin-bottom: 8px; letter-spacing: 0.6px;
+  font-weight: 700;
 }
 .starter-deck .dk-desc {
-  font-family: var(--font-cn);
-  font-size: 10px; color: var(--dimtext); margin-bottom: 6px;
+  font-family: var(--font-ui);
+  font-size: 14px; color: var(--text); margin-bottom: 8px;
+  font-weight: 600;
 }
 .starter-deck .dk-cards {
-  font-family: var(--font-cn);
-  font-size: 9px; color: #555; line-height: 1.7; text-align: left;
+  font-family: var(--font-ui);
+  font-size: 13px; color: #b8b8b8; line-height: 1.8; text-align: left;
+}
+
+@media (max-width: 900px) {
+  #dialog { max-width: 96%; padding: 18px 14px; }
+  #dialog h2 { font-size: 14px; }
+  #dialog p { font-size: 14px; }
+  .starter-decks { gap: 10px; margin: 12px 0; }
+  .starter-deck { width: 46%; min-width: 150px; padding: 12px 10px; }
+  .starter-deck .dk-name { font-size: 9px; }
+  .starter-deck .dk-desc { font-size: 12px; }
+  .starter-deck .dk-cards { font-size: 11px; }
 }
 
 /* 对话框按钮 */
 .dbtn {
-  font-family: var(--font-px);
+  font-family: var(--font-ui);
   font-size: 8px;
+  font-weight: 700;
   background: var(--bg3); color: var(--text);
   border: 2px solid var(--border);
   padding: 8px 16px; cursor: pointer; margin: 6px 4px;
@@ -452,8 +542,9 @@ body {
   box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--red),
               0 0 30px var(--red)50;
   color: var(--red);
-  font-family: var(--font-px);
+  font-family: var(--font-ui);
   font-size: 16px;
+  font-weight: 800;
   letter-spacing: 3px;
   padding: 16px 32px;
   pointer-events: none;
@@ -469,8 +560,9 @@ body {
   background: var(--bg2);
   border: 2px solid var(--border);
   color: var(--amber);
-  font-family: var(--font-px);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
   padding: 5px 14px;
   pointer-events: none;
   z-index: 400;
@@ -481,8 +573,8 @@ body {
 
 /* ─── Debug 面板（保持 monospace 不走像素字体，方便阅读） ───── */
 #debug-panel {
-  display: none; position: fixed; top: 38px; right: 0;
-  width: 320px; height: calc(100vh - 38px);
+  display: none; position: fixed; top: 46px; right: 0;
+  width: 360px; height: calc(100vh - 46px);
   background: rgba(8,12,8,0.96);
   border-left: 2px solid var(--green);
   z-index: 2000; flex-direction: column; font-family: monospace;
@@ -515,6 +607,26 @@ body {
 #debug-log .dl.warn  { color: var(--red); font-weight: bold; }
 #debug-log .dl.info  { color: #555; }
 #debug-log .dl.tower { color: #ff8c00; }
+
+/* Readability + mobile fallback */
+@media (max-width: 900px) {
+  #game-container { max-width: 100%; }
+  #top-bar { height: 50px; padding: 0 6px; }
+  .info-cell { font-size: 9px; padding: 0 6px; gap: 4px; }
+  #speed-controls { gap: 2px; padding: 0 4px; }
+  .px-btn { font-size: 10px; padding: 4px 6px; }
+  #resource-bar { height: 36px; padding: 0 4px; overflow-x: auto; }
+  .res-item { font-size: 9px; padding: 0 6px; }
+  #card-bar { height: 112px; min-height: 112px; padding: 6px 4px; gap: 4px; }
+  #deck-scroll { padding-bottom: 2px; }
+  #hand-cards { gap: 4px; min-height: 88px; }
+  #belt-btn, #splitter-btn, #underground-btn { min-width: 56px; max-width: 64px; font-size: 9px; }
+  #start-btn { font-size: 10px; padding: 8px 10px; }
+  #hint-bar { bottom: 110px; font-size: 8px; }
+  .card { min-width: 80px; max-width: 86px; height: 90px; }
+  .card .cname { font-size: 10px; }
+  .card .cdesc { font-size: 10px; }
+}
 </style>
 </head>
 <body>
@@ -588,7 +700,9 @@ body {
     <button id="belt-btn">BELT<br>&gt;&gt;</button>
     <button id="splitter-btn">SPLIT<br>⑂</button>
     <button id="underground-btn">UGND<br>▼▲</button>
-    <div id="hand-cards" style="display:flex;gap:6px;align-items:center;"></div>
+    <div id="deck-scroll">
+      <div id="hand-cards"></div>
+    </div>
     <button id="start-btn">[ START<br>DEFENSE ]</button>
   </div>
 

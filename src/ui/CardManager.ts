@@ -30,6 +30,11 @@ export class CardManager {
   render(gs: GameState): void {
     const container = document.getElementById('hand-cards');
     if (!container) return;
+
+    // Preserve horizontal scroll position so deck lane does not jump after using a card.
+    const deckScroll = document.getElementById('deck-scroll');
+    const prevScrollLeft = deckScroll instanceof HTMLElement ? deckScroll.scrollLeft : 0;
+
     container.innerHTML = '';
 
     for (const card of gs.hand) {
@@ -63,7 +68,7 @@ export class CardManager {
       const iconHtml = icfg
         ? `<div class="card-icon-wrap">
              <div style="width:24px;height:24px;background:${icfg.bg};border:2px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;">
-               <span style="font-family:var(--font-px);font-size:5px;color:rgba(255,255,255,0.7);letter-spacing:0;">${icfg.label}</span>
+               <span style="font-family:var(--font-ui);font-size:7px;font-weight:700;color:rgba(255,255,255,0.92);letter-spacing:0.1px;line-height:1;">${icfg.label}</span>
              </div>
            </div>`
         : '<div class="card-icon-wrap"></div>';
@@ -72,6 +77,8 @@ export class CardManager {
         <div class="cname">${nm}</div>
         <div class="cdesc">${shortDesc}</div>`;
 
+      div.title = `${nm} | ${shortDesc}`;
+
       div.addEventListener('click', () => this.onCardSelected(card));
       container.appendChild(div);
     }
@@ -79,6 +86,13 @@ export class CardManager {
     // 传送带按钮高亮
     const bb = document.getElementById('belt-btn');
     if (bb) bb.className = gs.beltMode ? 'active' : '';
+
+    if (deckScroll instanceof HTMLElement) {
+      requestAnimationFrame(() => {
+        const maxScroll = Math.max(0, deckScroll.scrollWidth - deckScroll.clientWidth);
+        deckScroll.scrollLeft = Math.min(prevScrollLeft, maxScroll);
+      });
+    }
   }
 }
 
